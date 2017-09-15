@@ -3,9 +3,14 @@
 
 #### Loading Packages ####
 
-list.of.packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
-new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
-if(length(new.packages)) install.packages(new.packages)
+packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+
+package.check <- lapply(packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
 
 #### Load and clean addresses ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
