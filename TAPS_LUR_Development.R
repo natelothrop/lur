@@ -1,5 +1,8 @@
 #This script is to create spatial analysis variables for a point set using ESCAPE methods found in their study manuals
 
+# Clear environment of temporary files
+rm(list=ls())
+
 
 #### Loading Packages ####
 
