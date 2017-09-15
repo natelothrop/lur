@@ -3,7 +3,7 @@
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+list.of.packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -460,6 +460,20 @@ write.csv(railyardnr, "railyard_nr.csv", row.names = F)
 
 
 
+
+
+#### Load CALINE 2010 Average Annual PM2.5 Concentration ####
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010")
+caline <- read.csv("ExposureForAllIndividuals.csv")
+
+caline$hhid_x <- caline$CRSID
+
+caline <- caline %>%
+  group_by(hhid_x) %>%
+  summarize(cal3_pm25 = mean(Total))
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+write.csv(caline, "caline.csv", row.names = F)
 
 
 #### Create coordinate point predictors ####
