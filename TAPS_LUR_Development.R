@@ -1,8 +1,8 @@
 #This script is to create spatial analysis variables for a point set using ESCAPE methods found in their study manuals
 
+
 #### Loading Packages ####
 # data processing
-# library(foreign) # for reading dbfs
 library(devtools)
 library(ggplot2)
 library(dplyr)
@@ -11,23 +11,14 @@ library(tidyverse)
 library(tidyr)
 library(car)
 library(caret)
-# library(gridExtra) # to arrange grid plots
 
 # spatial
-# library(rgeos)
 library(raster)
 library(leaflet)
-# library(rasterVis)
 library(rgdal)
 # library(dismo) #map raster on Google Map
 # library(ggmap)
 library(sp)
-# library(spatstat)
-# library(FNN)
-# library(geosphere)
-# library(geosphere)
-# library(PBSmapping)
-# library(maptools)
 library(sf)
 
 
