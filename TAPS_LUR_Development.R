@@ -1,8 +1,5 @@
 #This script is to create spatial analysis variables for a point set using ESCAPE methods found in their study manuals
 
-# this is new text I just added!
-# New stuff!
-
 #### Loading Packages ####
 # data processing
 # library(foreign) # for reading dbfs
