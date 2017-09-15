@@ -3,10 +3,9 @@
 # Clear environment of temporary files
 rm(list=ls())
 
-
 #### Loading Packages ####
 
-list.of.packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -688,6 +687,76 @@ pm25_r<-pm25_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(pm25adj, labels.id = lurdata$hhid_x)
+
+#### LUR Analysis Based on ESCAPE Protocol - PM10 ####
+
+pm10adj <- (lm(pm10_adj~
+                 lu_hr_500 +
+                 busrt_l_1000
+               
+               ,data=lurdata))
+summary(pm10adj)
+
+#check for multicollinearity
+vif(pm10adj) # problem?
+#NOTE if vif>3, then exclude from model, starting with largest VIF first if needed
+
+
+# Cook's D plot
+# identify D values 4/(n-k-1) 
+# Observations over 1 should be checked and likely excluded
+cutoff <- 4/((nrow(lurdata)-length(pm10adj$coefficients)-2)) 
+plot(pm10adj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
+
+#Validation
+
+#Leave one out Cross Validation
+# define training control
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(pm10_adj~busrt_l_300 +
+                       Xcoord
+                     ,data=filter(lurdata, !is.na(pm10_adj)), trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
+
+
+
+
+#Hold-out Validation
+set.seed(1)
+in_train <- createDataPartition(lurdata$pm10_adj, p = 2/3, list = FALSE)
+training <- lurdata[ in_train,]
+testing  <- lurdata[-in_train,]
+
+nrow(lurdata)
+nrow(training)
+nrow(testing)
+
+model_hov <- train(pm10_adj~busrt_l_300 +
+                     Xcoord
+                   , data = training, method = "lm")
+print(model_hov)
+
+
+
+
+fitpm10<-summary(pm10adj) #final model
+
+#pull out residuals
+attributes(fitpm10)
+fitpm10.r<-fitpm10$residuals
+
+pm10_r<-merge(fitpm10.r,lurdata, by=c("row.names"), all=T)
+names(pm10_r)[2]<-"pm10_r"
+pm10_r <- dplyr::select(pm10_r, hhid_x, pm10_r)
+
+keep<-c(2:3)
+pm10_r<-pm10_r[,keep]
+
+par(mfrow = c(2, 2))
+plot(pm10adj, labels.id = lurdata$hhid_x)
+
 
 #### Plot Residuals ####
 #Load in results and addresses again
