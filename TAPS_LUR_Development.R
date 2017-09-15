@@ -2,28 +2,10 @@
 
 
 #### Loading Packages ####
-# data processing
-library(devtools)
-library(ggplot2)
-library(dplyr)
-library(magrittr)
-library(tidyverse)
-library(tidyr)
-library(car)
-library(caret)
 
-# spatial
-library(raster)
-library(leaflet)
-library(rgdal)
-# library(dismo) #map raster on Google Map
-# library(ggmap)
-library(sp)
-library(sf)
-
-
-
-rastersrc <- "/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters"
+list.of.packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
 
 #### Load and clean addresses ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
