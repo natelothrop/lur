@@ -617,6 +617,103 @@ par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
 
 
+#### LUR Analysis Based on ESCAPE Protocol - nox ####
+
+noxadj <- (lm(nox_adj~
+                lu_hr_1000 +
+                distintvmine1 +
+                distintvrail1 +
+                elev +
+                #lu_hr_5000 +
+                #lu_nt_100 +
+                #mroads_tl_50 +
+                roads_rl_100 +
+                roads_rl_1000
+              ,data=lurdata))
+summary(noxadj)
+
+noxadj <- (lm(nox_adj~
+                lu_hr_1000 +
+                distintvmine1 +
+                distintvrail1 +
+                elev +
+                #lu_hr_5000 +
+                #lu_nt_100 +
+                #mroads_tl_50 +
+                roads_rl_100 +
+                roads_rl_1000
+              ,data=subset(lurdata, lurdata$hhid_x != "ZD62_A")))
+summary(noxadj)
+
+#check for multicollinearity
+vif(noxadj) # problem?
+#NOTE if vif>3, then exclude from model, starting with largest VIF first if needed
+
+
+# Cook's D plot
+# identify D values 4/(n-k-1) 
+# Observations over 1 should be checked and likely excluded
+cutoff <- 4/((nrow(lurdata)-length(noxadj$coefficients)-2)) 
+plot(noxadj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
+
+#Validation
+
+#Leave one out Cross Validation
+# define training control
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(nox_adj~
+                       lu_hr_1000 +
+                       distintvmine1 +
+                       distintvrail1 +
+                       elev +
+                       roads_rl_100 +
+                       roads_rl_1000
+                     ,data=lurdata, trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
+
+
+
+
+#Hold-out Validation
+set.seed(1)
+in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
+training <- lurdata[ in_train,]
+testing  <- lurdata[-in_train,]
+
+nrow(lurdata)
+nrow(training)
+nrow(testing)
+
+model_hov <- train(nox_adj~lu_hr_1000 +
+                     distintvrail1 +
+                     elev +
+                     roads_rl_1000
+                   , data = training, method = "lm")
+print(model_hov)
+
+
+
+
+fitnox<-summary(noxadj) #final model
+
+#pull out residuals
+attributes(fitnox)
+fitnox.r<-fitnox$residuals
+
+nox_r<-merge(fitnox.r,lurdata, by=c("row.names"), all=T)
+names(nox_r)[2]<-"nox_r"
+nox_r <- dplyr::select(nox_r, hhid_x, nox_r)
+
+keep<-c(2:3)
+nox_r<-nox_r[,keep]
+
+par(mfrow = c(2, 2))
+plot(noxadj, labels.id = lurdata$hhid_x)
+
+
+
 #### LUR Analysis Based on ESCAPE Protocol - PM2.5 ####
 
 pm25adj <- (lm(pm25_adj~
