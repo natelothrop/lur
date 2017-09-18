@@ -464,7 +464,7 @@ write.csv(railyardnr, "railyard_nr.csv", row.names = F)
 
 
 
-#### Load CALINE 2010 Average Annual PM2.5 Concentration ####
+#### CALINE 2010 Average Annual PM2.5 Concentration ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010")
 caline <- read.csv("ExposureForAllIndividuals.csv")
 
@@ -615,6 +615,90 @@ no2_r<-no2_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
+
+
+#### LUR Analysis Based on ESCAPE Protocol - NOx ####
+
+noxadj <- (lm(nox_adj~
+                lu_hr_1000 +
+                distintvmine1 +
+                #distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
+                elev +
+                #lu_hr_5000 +
+                #lu_nt_100 +
+                #mroads_tl_50 +
+                roads_rl_100 +
+                roads_rl_1000
+              ,data=subset(lurdata, lurdata$hhid_x != "ZD62_A"))) # NOTE - home removed due to Cook's D over 1
+summary(noxadj)
+
+#check for multicollinearity
+vif(noxadj) # problem?
+#NOTE if vif>3, then exclude from model, starting with largest VIF first if needed
+
+
+# Cook's D plot
+# identify D values 4/(n-k-1) 
+# Observations over 1 should be checked and likely excluded
+cutoff <- 4/((nrow(lurdata)-length(noxadj$coefficients)-2)) 
+plot(noxadj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
+
+#Validation
+
+#Leave one out Cross Validation
+# define training control
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(nox_adj~
+                       lu_hr_1000 +
+                       distintvmine1 +
+                       distintvrail1 +
+                       elev +
+                       roads_rl_100 +
+                       roads_rl_1000
+                     ,data=lurdata, trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
+
+
+
+
+#Hold-out Validation
+set.seed(1)
+in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
+training <- lurdata[ in_train,]
+testing  <- lurdata[-in_train,]
+
+nrow(lurdata)
+nrow(training)
+nrow(testing)
+
+model_hov <- train(nox_adj~lu_hr_1000 +
+                     distintvrail1 +
+                     elev +
+                     roads_rl_1000
+                   , data = training, method = "lm")
+print(model_hov)
+
+
+
+
+fitnox<-summary(noxadj) #final model
+
+#pull out residuals
+attributes(fitnox)
+fitnox.r<-fitnox$residuals
+
+nox_r<-merge(fitnox.r,lurdata, by=c("row.names"), all=T)
+names(nox_r)[2]<-"nox_r"
+nox_r <- dplyr::select(nox_r, hhid_x, nox_r)
+
+keep<-c(2:3)
+nox_r<-nox_r[,keep]
+
+par(mfrow = c(2, 2))
+plot(noxadj, labels.id = lurdata$hhid_x)
+
 
 
 #### LUR Analysis Based on ESCAPE Protocol - PM2.5 ####
@@ -768,7 +852,7 @@ par(mfrow = c(2, 2))
 plot(pm10adj, labels.id = lurdata$hhid_x)
 
 
-#### Plot Residuals ####
+#### Create Residual Output ####
 #Load in results and addresses again
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
 results <- read.csv("TAPSdata.csv")
@@ -783,10 +867,11 @@ addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
 
 addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"), all.x=T)
 
+#merge model residuals
 resids <- left_join(addrs, no2_r, by=c("hhid_x"), all.x=T)
+resids <- left_join(resids, nox_r, by=c("hhid_x"), all.x=T)
 resids <- left_join(resids, pm25_r, by=c("hhid_x"), all.x=T)
 resids <- left_join(resids, pm10_r, by=c("hhid_x"), all.x=T)
-
 
 #drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
 resids <- subset(resids, resids$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
@@ -794,7 +879,11 @@ resids <- subset(resids, resids$hhid_x != "SM47_A") #dropped as this was only me
 resids <- subset(resids, resids$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
+
+st_write(resids, "TAPS_Residuals.shp")
+
 resids.df <- resids
+
 write.csv(resids.df, "TAPS_Residuals.csv", row.names = F)
 
 resids.spdf <- as(resids, "Spatial")
