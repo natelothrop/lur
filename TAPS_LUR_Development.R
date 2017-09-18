@@ -5,7 +5,7 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'rgdal', 'sp', 'sf', 'methods')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -785,6 +785,8 @@ addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"), all.x=T)
 
 resids <- left_join(addrs, no2_r, by=c("hhid_x"), all.x=T)
 resids <- left_join(resids, pm25_r, by=c("hhid_x"), all.x=T)
+resids <- left_join(resids, pm10_r, by=c("hhid_x"), all.x=T)
+
 
 #drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
 resids <- subset(resids, resids$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
@@ -795,23 +797,21 @@ setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
 resids.df <- resids
 write.csv(resids.df, "TAPS_Residuals.csv", row.names = F)
 
-plot(resids)
+resids.spdf <- as(resids, "Spatial")
 
-ggplot() + geom_sf(aes(color = no2_r), data=resids)
-ggplot() + geom_sf(aes(color = pm25_r), data=filter(resids, !is.na(pm25_adj)))
+resids.spdf <- spTransform(resids.spdf, CRS("+proj=longlat +datum=WGS84"))
 
-
-
-##### STILL TESTING PLOTTING ####
-
-#for coordinate system to WGS84 for plotting only
-resids.web_mercator <- resids  %>% st_set_crs(NA) %>% st_set_crs(3857)
-resids.web_mercator <- as(resids.web_mercator, "Spatial")
+resids.spdf$long <- resids.spdf@coords[,1]
+resids.spdf$lat <- resids.spdf@coords[,2]
 
 
-resids.web_mercator$lat <- st_coordinates(resids.web_mercator[,1])
-resids.web_mercator$long <- st_coordinates(resids.web_mercator[,2])
-st_geometry(resids.web_mercator) <- NULL
+qpal_no2 <- colorQuantile("Reds", resids.spdf$no2_adj, n = 5)
 
-leaflet(data=resids.web_mercator) %>% addTiles() %>% addCircleMarkers(resids.web_mercator)
-leaflet() %>% addTiles() %>% addCircleMarkers(data = st_geometry(resids))
+leaflet(data = resids.spdf) %>% addTiles() %>%
+  addCircleMarkers(lat = ~lat, lng = ~long,
+             popup = ~hhid_x,
+             color = ~qpal_no2(no2_adj),
+             stroke = T, fillOpacity = 0.75
+             )
+  
+
