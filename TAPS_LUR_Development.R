@@ -5,7 +5,7 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'tidyverse', 'caret', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
+packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'rgdal', 'sp', 'sf')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -692,7 +692,13 @@ plot(pm25adj, labels.id = lurdata$hhid_x)
 
 pm10adj <- (lm(pm10_adj~
                  lu_hr_500 +
-                 busrt_l_1000
+                 #distintvair1 +
+                 #distintvmine1 +
+                 #distintvrail1 +
+                 lu_nt_100 +
+                 #lu_ug_5000 +
+                 #roads_tl_500 +
+                 XplusY
                
                ,data=lurdata))
 summary(pm10adj)
@@ -714,8 +720,10 @@ plot(pm10adj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
 # define training control
 train_control <- trainControl(method="LOOCV")
 # train the model
-model_loocv <- train(pm10_adj~busrt_l_300 +
-                       Xcoord
+model_loocv <- train(pm10_adj~
+                       lu_hr_500 +
+                       lu_nt_100 +
+                       XplusY
                      ,data=filter(lurdata, !is.na(pm10_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
@@ -733,8 +741,10 @@ nrow(lurdata)
 nrow(training)
 nrow(testing)
 
-model_hov <- train(pm10_adj~busrt_l_300 +
-                     Xcoord
+model_hov <- train(pm10_adj~
+                     lu_hr_500 +
+                     lu_nt_100 +
+                     XplusY
                    , data = training, method = "lm")
 print(model_hov)
 
