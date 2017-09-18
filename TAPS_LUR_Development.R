@@ -5,7 +5,7 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'rgdal', 'sp', 'sf', 'methods')
+packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'htmltools','rgdal', 'sp', 'sf', 'methods')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -804,14 +804,46 @@ resids.spdf <- spTransform(resids.spdf, CRS("+proj=longlat +datum=WGS84"))
 resids.spdf$long <- resids.spdf@coords[,1]
 resids.spdf$lat <- resids.spdf@coords[,2]
 
+resids.df <- data.frame(resids.spdf)
 
-qpal_no2 <- colorQuantile("Reds", resids.spdf$no2_adj, n = 5)
+# qpal_no2 <- colorQuantile("Reds", resids.df$no2_adj, n = 5)
+# 
+# leaflet(data = resids.df) %>% addTiles() %>%
+#   addCircleMarkers(lat = ~lat, lng = ~long,
+#              popup = ~hhid_x,
+#              color = ~qpal_no2(no2_adj),
+#              stroke = T, fillOpacity = 0.75
+#              )
 
-leaflet(data = resids.spdf) %>% addTiles() %>%
-  addCircleMarkers(lat = ~lat, lng = ~long,
-             popup = ~hhid_x,
-             color = ~qpal_no2(no2_adj),
-             stroke = T, fillOpacity = 0.75
-             )
-  
+map <- leaflet(data = resids.df) %>% addTiles()
+
+pal_no2 <- colorNumeric("Reds", resids.df$no2_adj, n = 5)
+
+map %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.75,
+              color = ~pal_no2(no2_adj),
+              label = ~hhid_x,
+              popup = paste("NO2:", format(round(resids.spdf$no2_adj, 2), nsmall = 2), "<br>",
+                            "NO2 Resid:", format(round(resids.spdf$no2_r, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_no2,
+            values = ~no2_adj,
+            title = "NO2 Concentration (ppb)",
+            opacity = 0.75) 
+
+# addMinicharts(
+#   resids.df$long, resids.df$lat,
+#   type = "pie",
+#   chartdata = resids.df[, c("no2_adj", "nox_adj")], 
+#   colorPalette = colors, 
+#   width = 2 * (resids.df$no2_adj + resids.df$nox_adj), transitionTime = 0,
+#   showLabels = T) %>%
+
+  # # Layers control
+  # addLayersControl(
+  #   baseGroups = c("OSM (default)", "Toner", "Toner Lite"),
+  #   overlayGroups = c("Quakes", "Outline"),
+  #   options = layersControlOptions(collapsed = FALSE)
+  # )
+
+
 
