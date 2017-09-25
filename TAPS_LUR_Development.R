@@ -652,7 +652,6 @@ train_control <- trainControl(method="LOOCV")
 model_loocv <- train(nox_adj~
                        lu_hr_1000 +
                        distintvmine1 +
-                       distintvrail1 +
                        elev +
                        roads_rl_100 +
                        roads_rl_1000
@@ -934,5 +933,12 @@ map %>%
   #   options = layersControlOptions(collapsed = FALSE)
   # )
 
+#### Create prediction rasters from LUR equations ####
+
+#predict air pollution levels
+pred_no2 <- predict(no2adj, griddata)
+pred_nox <- predict(noxadj, griddata)
+pred_pm25 <- predict(pm25adj, griddata)
+pred_pm10 <- predict(pm10adj, griddata)
 
 
