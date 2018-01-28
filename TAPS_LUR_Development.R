@@ -5,7 +5,7 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'tidyverse', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'htmltools','rgdal', 'sp', 'sf', 'methods')
+packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -13,6 +13,10 @@ package.check <- lapply(packages, FUN = function(x) {
     library(x, character.only = TRUE)
   }
 })
+
+# This was used in attempt to get geom_sf to work, but it still DOES NOT
+# devtools::install_github("tidyverse/ggplot2")
+# require(ggplot2)
 
 #### Load and clean addresses ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
@@ -513,7 +517,7 @@ lurdata[, 1:11][lurdata[, 1:11]==0] <- NA
 
 
 
-#### Data Cleaning and LUR Testing ####
+#### Data cleaning and LUR testing ####
 
 #drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
 lurdata <- subset(lurdata, lurdata$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
@@ -541,7 +545,26 @@ sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_p
 lapply( lurdata[,-1], function(x) summary(lm(lurdata$pm10_adj ~ x)) )
 sink()#stops diverting output
 
-#### LUR Analysis Based on ESCAPE Protocol - NO2 ####
+#### Summary stats ####
+
+lurdata %>%
+  summarise(n.obs=length(no2_adj),
+            n.homes=n_distinct(hhid_x),
+            geomean=exp(mean(log(no2_adj))),
+            geosd=exp(sd(log(no2_adj))),
+            min=min(no2_adj),
+            max=max(no2_adj))
+
+lurdata %>%
+  filter(!is.na(pm25_adj)) %>%
+  summarise(n.obs=length(pm25_adj),
+            n.homes=n_distinct(hhid_x),
+            geomean=exp(mean(log(pm25_adj))),
+            geosd=exp(sd(log(pm25_adj))),
+            min=min(pm25_adj),
+            max=max(pm25_adj))
+
+#### LUR analysis based on ESCAPE protocol - NO2 ####
 
 no2adj <- (lm(no2_adj~lu_hr_1000 +
                 #distintvmine1 +
@@ -617,7 +640,7 @@ par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
 
 
-#### LUR Analysis Based on ESCAPE Protocol - NOx ####
+#### LUR analysis based on ESCAPE protocol - NOx ####
 
 noxadj <- (lm(nox_adj~
                 lu_hr_1000 +
@@ -627,9 +650,9 @@ noxadj <- (lm(nox_adj~
                 #lu_hr_5000 +
                 #lu_nt_100 +
                 #mroads_tl_50 +
-                roads_rl_100 +
-                roads_rl_1000
-              ,data=subset(lurdata, lurdata$hhid_x != "ZD62_A"))) # NOTE - home removed due to Cook's D over 1
+                #roads_rl_100 +
+                (roads_rl_1000- roads_rl_100) #as per ESCAPE, variables of same source are subtracted from each other
+              ,data=subset(lurdata, (hhid_x != "ZD62_A" & !is.na(nox_adj))))) # NOTE - home removed due to Cook's D over 1
 summary(noxadj)
 
 #check for multicollinearity
@@ -653,9 +676,9 @@ model_loocv <- train(nox_adj~
                        lu_hr_1000 +
                        distintvmine1 +
                        elev +
-                       roads_rl_100 +
-                       roads_rl_1000
-                     ,data=lurdata, trControl=train_control, method="lm")
+                       #roads_rl_100 +
+                       (roads_rl_1000-roads_rl_100)
+                     ,data=subset(lurdata, (hhid_x != "ZD62_A" & !is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
 # summarize results
 print(model_loocv)
 
@@ -700,7 +723,7 @@ plot(noxadj, labels.id = lurdata$hhid_x)
 
 
 
-#### LUR Analysis Based on ESCAPE Protocol - PM2.5 ####
+#### LUR analysis based on ESCAPE protocol - PM2.5 ####
 
 pm25adj <- (lm(pm25_adj~
                  #elev +
@@ -771,7 +794,7 @@ pm25_r<-pm25_r[,keep]
 par(mfrow = c(2, 2))
 plot(pm25adj, labels.id = lurdata$hhid_x)
 
-#### LUR Analysis Based on ESCAPE Protocol - PM10 ####
+#### LUR analysis based on ESCAPE protocol - PM10 ####
 
 pm10adj <- (lm(pm10_adj~
                  lu_hr_500 +
@@ -851,7 +874,7 @@ par(mfrow = c(2, 2))
 plot(pm10adj, labels.id = lurdata$hhid_x)
 
 
-#### Create Residual Output ####
+#### Create residual output ####
 #Load in results and addresses again
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
 results <- read.csv("TAPSdata.csv")
@@ -932,13 +955,3 @@ map %>%
   #   overlayGroups = c("Quakes", "Outline"),
   #   options = layersControlOptions(collapsed = FALSE)
   # )
-
-#### Create prediction rasters from LUR equations ####
-
-#predict air pollution levels
-pred_no2 <- predict(no2adj, griddata)
-pred_nox <- predict(noxadj, griddata)
-pred_pm25 <- predict(pm25adj, griddata)
-pred_pm10 <- predict(pm10adj, griddata)
-
-
