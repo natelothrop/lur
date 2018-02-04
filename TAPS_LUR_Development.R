@@ -564,6 +564,76 @@ lurdata %>%
             min=min(pm25_adj),
             max=max(pm25_adj))
 
+#### Create NO2/NOx Ratio + Summary maps ####
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+results <- read.csv("TAPSdata.csv")
+
+# Create NO2/NOx Ratio
+results$no2noxratio_adj <- results$no2_adj/results$nox_adj
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+addrs <- st_read("Sites.shp", stringsAsFactors = F)
+
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
+
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+
+#drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
+addrs <- subset(addrs, addrs$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
+
+
+
+addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+
+addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
+
+# Transform for mapping the addrs
+addrs.spdf <- as(addrs, "Spatial")
+addrs.spdf <- spTransform(addrs.spdf, CRS("+proj=longlat +datum=WGS84"))
+
+# Change addrs into dataframe
+addrs.spdf$longitude <- addrs.spdf@coords[,1]
+addrs.spdf$latitude <- addrs.spdf@coords[,2]
+addrs.df <- data.frame(addrs.spdf)
+
+# Drop excess coordinate fields
+#addrs.df <- select(addrs.df, hhid_x, long, lat)
+
+# Map addrs
+map <- leaflet(data = addrs.df) %>% 
+  addProviderTiles("Stamen.TonerLite", group = "Toner Lite")
+
+# Create a continuous palette function for pollutants
+no2_pal = colorNumeric(
+  palette = "Oranges",
+  domain = addrs.df$no2_adj
+)
+
+nox_pal = colorNumeric(
+  palette = "Reds",
+  domain = addrs.df$nox_adj
+)
+
+#NO2 Map
+map %>%
+  addCircleMarkers(stroke = T,
+                   opacity=1,
+                   radius=3,
+                   color=~no2_pal(addrs.df$no2_adj),
+                              popup = addrs.df$hhid_x)
+#NOx Map
+map %>%
+  addCircleMarkers(stroke = T,
+                   opacity=1,
+                   radius=3,
+                   color=~nox_pal(addrs.df$nox_adj),
+                   popup = addrs.df$hhid_x)
+
 #### LUR analysis based on ESCAPE protocol - NO2 ####
 
 no2adj <- (lm(no2_adj~lu_hr_1000 +
