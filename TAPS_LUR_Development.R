@@ -314,7 +314,7 @@ mapply(FUN = intx_vehicles, predictors, lbuffdists)
 # line in area buffer distances (rail, bus route, road)
 lbuffdists <- c(25, 50, 100, 300, 500, 1000)
 
-intx_vehicles <- function(p,lbuffdists,i){
+intx_stspeed <- function(p,lbuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
   intx <- st_cast(intx, "MULTILINESTRING")
@@ -342,7 +342,7 @@ intx_vehicles <- function(p,lbuffdists,i){
 }
 
 predictors <- list("stspeed" = stspeed)
-mapply(FUN = intx_vehicles, predictors, lbuffdists)
+mapply(FUN = intx_stspeed, predictors, lbuffdists)
 
 
 #### Nearest line sources with vehicle loading (roads, major roads) ####
@@ -1319,17 +1319,7 @@ resids.spdf$lat <- resids.spdf@coords[,2]
 
 resids.df <- data.frame(resids.spdf)
 
-# qpal_no2 <- colorQuantile("Reds", resids.df$no2_adj, n = 5)
-# 
-# leaflet(data = resids.df) %>% addTiles() %>%
-#   addCircleMarkers(lat = ~lat, lng = ~long,
-#              popup = ~hhid_x,
-#              color = ~qpal_no2(no2_adj),
-#              stroke = T, fillOpacity = 0.75
-#              )
-
 resids.spdf.nox <- resids.spdf[!is.na(resids.spdf$no2_r),]
-
 
 map <- leaflet(data = resids.spdf.nox) %>% addTiles()
 
