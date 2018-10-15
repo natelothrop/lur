@@ -5,7 +5,8 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse')
+packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 
+              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'AICcmodavg')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -52,7 +53,14 @@ mines <- st_read("mines_1.shp", stringsAsFactors = F)
 rail <- st_read("railroad_1.shp", stringsAsFactors = F)
 railyard <- st_read("railroad_yardcentroid_1.shp", stringsAsFactors = F)
 roads <- st_read("Roads_v20170728.shp", stringsAsFactors = F)
-lu <- st_read("nlcd2011_pimaclippolygon.shp", stringsAsFactors = F)
+lu <- st_read("Tracts2010.shp", stringsAsFactors = F)
+
+ptldcmnt <- st_read("portlandcementplant.shp", stringsAsFactors = F)
+tepplant <- st_read("tep_station.shp", stringsAsFactors = F)
+stspeed <- st_read("stspeed.shp", stringsAsFactors = F)
+histdev <- st_read("dev_hist.shp", stringsAsFactors = F)
+
+
 
 # Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
 roads <- roads[ , grepl( "VD" , names( roads ) ) ]
@@ -67,6 +75,10 @@ rail <- rail  %>% st_set_crs(NA) %>% st_set_crs(2868)
 railyard <- railyard  %>% st_set_crs(NA) %>% st_set_crs(2868)
 roads <- roads  %>% st_set_crs(NA) %>% st_set_crs(2868)
 lu <- lu  %>% st_set_crs(NA) %>% st_set_crs(2868)
+ptldcmnt <- ptldcmnt  %>% st_set_crs(NA) %>% st_set_crs(2868)
+tepplant <- tepplant  %>% st_set_crs(NA) %>% st_set_crs(2868)
+stspeed <- stspeed  %>% st_set_crs(NA) %>% st_set_crs(2868)
+histdev <- histdev  %>% st_set_crs(NA) %>% st_set_crs(2868)
 
 crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
 
@@ -80,15 +92,23 @@ st_transform(rail, crs = 2868)
 st_transform(railyard, crs = 2868)
 st_transform(roads, crs = 2868)
 st_transform(lu, crs = 2868)
+st_transform(ptldcmnt, crs = 2868)
+st_transform(tepplant, crs = 2868)
+st_transform(stspeed, crs = 2868)
+st_transform(histdev, crs = 2868)
 
-elev_rast <- projectRaster(elev_rast, crs=crs_raster)
-
+# Drop developments with no units listed
+histdev <- filter(histdev, UNITS>0)
 
 #define major roads as >5000 vehicles/day as per ESCAPE
 mroads <- subset(roads, roads$VD15>5000)
 
 
 #### Elevation raster at point ####
+
+elev_rast <- projectRaster(elev_rast, crs=crs_raster)
+
+
 
 addrs_spdf <- readOGR("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles", layer="Sites")
 addrs_spdf$hhid_x <- paste(addrs_spdf$HHID, addrs_spdf$HHIDX, sep="_") #make unique address ID
@@ -112,7 +132,7 @@ write.csv(elev, "elev.csv",row.names = F)
 
 
 
-#### Polygon areal predictors (census, land use) ####
+#### Polygon areal predictors (census, land use, housing development history) ####
 
 #Land uses weighted to area
 abuffdists <- c(100, 300, 500, 1000, 5000)
@@ -197,6 +217,32 @@ intx_census <- function(p,abuffdists,i){
 predictors <- list("census" = census)
 mapply(FUN = intx_census, predictors, abuffdists)
 
+
+#Historic housing development planned units weighted to buffer area
+# only current to 2015 as of 10/12/18, so for TAPS, no need to cut by year
+intx_histdev <- function(p,abuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      mutate(histdev_sum = sum(UNITS))
+
+
+    hd <- data.frame(rowsum(x = intx$histdev_sum, group = intx$hhid_x))
+    hd$hhid_x <- row.names(hd)
+    names(hd)[1] <- paste0("hd_",as.character(abuffdists))
+    rownames(hd) <- c()
+    write.csv(hd, paste0("hd_",as.character(abuffdists),".csv"),row.names = F)
+    
+    
+  } else {
+    print("histdev_",as.character(abuffdists)," had no intersections")
+  }
+}
+
+predictors <- list("histdev" = histdev)
+mapply(FUN = intx_histdev, predictors, abuffdists)
+
 #### Line length of sources without vehicle loading in buffers (bus routes, rail lines) ####
 
 # line in area buffer distances (rail, bus route, road)
@@ -263,7 +309,40 @@ mapply(FUN = intx_vehicles, predictors, lbuffdists)
 predictors <- list("roads" = roads)
 mapply(FUN = intx_vehicles, predictors, lbuffdists)
 
+#### Line length and speed loading ####
 
+# line in area buffer distances (rail, bus route, road)
+lbuffdists <- c(25, 50, 100, 300, 500, 1000)
+
+intx_vehicles <- function(p,lbuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
+  intx <- st_cast(intx, "MULTILINESTRING")
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      # mutate(roadlength = (st_length(intx) * 0.3048)) %>% #NOTE dividing to convert to length from ft to meters
+      mutate(speedload = SPEED_CD * (st_length(intx) * 0.3048)) #NOTE this is built from VD15 values and roads with no counts ("0") are subbed with 500 as per ESCAPE
+    
+    # rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
+    # rl$hhid_x <- row.names(rl)
+    # names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
+    # rownames(rl) <- c()
+    # write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
+    
+    
+    sl <- data.frame(rowsum(x = intx$speedload, group = intx$hhid_x))
+    sl$hhid_x <- row.names(sl)
+    names(sl)[1] <- paste0(names(predictors)[i],"_sl_",as.character(lbuffdists))
+    rownames(sl) <- c()
+    write.csv(sl, paste0(names(predictors)[i],"_sl_",as.character(lbuffdists),".csv"),row.names = F)
+    
+  } else {
+    print(paste0(names(predictors)[i],"_rlsl_",as.character(lbuffdists)," had no intersections"))
+  }
+}
+
+predictors <- list("stspeed" = stspeed)
+mapply(FUN = intx_vehicles, predictors, lbuffdists)
 
 
 #### Nearest line sources with vehicle loading (roads, major roads) ####
@@ -339,6 +418,37 @@ mroadnr$NRDistM <- NULL
 write.csv(mroadnr, "mroad_nr.csv", row.names = F)
 
 
+#Nearest road and speed limit (as per 2010 speed limits, last date of 2010)
+d <- st_distance(addrs, stspeed)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d.spdlim <- apply(d, 1, function(x) stspeed$SPEED_CD [order(x)][1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df$spdlim <- min.d.spdlim
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+spdlimnr <- cbind(addrsdf, min.d_df)
+spdlimnr <- subset(spdlimnr, select = c(hhid_x, dist, spdlim)) #pull out hhid_x, distance to, and vd per day
+
+#rename according to ESCAPE nomenclature
+#names(roadnr)[1]<-"hhid"
+names(spdlimnr)[2]<-"NRDistM"
+names(spdlimnr)[3]<-"spdlimnear"
+
+
+#calculate predictors based on "vd" and "dist" fields
+spdlimnr$distinvspdlim1<-1/spdlimnr$NRDistM
+spdlimnr$distinvspdlim2<-(1/spdlimnr$NRDistM)^2
+# spdlimnr$intinvnear1<-roadnr$trafnear * (1/roadnr$NRDistM)
+# spdlimnr$intinvnear2<-roadnr$trafnear * ((1/roadnr$NRDistM)^2)
+
+
+#drop the distance variable as this isn't a predictor
+spdlimnr$NRDistM <- NULL
+write.csv(spdlimnr, "spdlim_nr.csv", row.names = F)
+
+
 #### Nearest line sources without vehicle loading (bus routes, rail lines) ####
 
 
@@ -386,6 +496,45 @@ railnr$distintvrail2<-(1/railnr$NRDistM)^2
 
 railnr$NRDistM<-NULL
 write.csv(railnr, "rail_nr.csv", row.names = F)
+
+
+#### Nearest polygon sources with unit loading (historic housing development) ####
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+
+#Nearest development and planned density
+d <- st_distance(addrs, histdev)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d.hd <- apply(d, 1, function(x) histdev$UNITS [order(x)][1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df$hd <- min.d.hd
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+histdevnr <- cbind(addrsdf, min.d_df)
+histdevnr <- subset(histdevnr, select = c(hhid_x, dist, hd)) #pull out hhid_x, distance to, and value field
+
+#rename according to ESCAPE nomenclature
+#names(roadnr)[1]<-"hhid"
+names(histdevnr)[2]<-"NRDistM"
+names(histdevnr)[3]<-"hdnear"
+
+# In case any address is in the nearest development, add 0.1 m to near distance
+histdevnr$NRDistM <- histdevnr$NRDistM + 0.1
+
+
+#calculate predictors based on "hd" and "dist" fields
+histdevnr$distinvhd1<-1/histdevnr$NRDistM
+histdevnr$distinvhd2<-(1/histdevnr$NRDistM)^2
+histdevnr$intinvhd1<-histdevnr$hdnear * (1/histdevnr$NRDistM)
+histdevnr$intinvhd2<-histdevnr$hdnear * ((1/histdevnr$NRDistM)^2)
+
+
+#drop the distance variable as this isn't a predictor
+histdevnr$NRDistM <- NULL
+write.csv(histdevnr, "histdev_nr.csv", row.names = F)
+
 
 
 #### Nearest polygon (airports, active surface mines) and point (rail yard) sources ####
@@ -457,7 +606,48 @@ railyardnr$NRDistM<-NULL
 write.csv(railyardnr, "railyard_nr.csv", row.names = F)
 
 
+# Distance to Portland Cement Plant off I10, Marana
+d <- st_distance(addrs, ptldcmnt)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
 
+addrsdf <- as.data.frame(addrs)
+ptldcmntnr <- cbind(addrsdf, min.d_df)
+ptldcmntnr <- subset(ptldcmntnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(railyardnr)[1]<-"hhid"
+names(ptldcmntnr)[2]<-"NRDistM"
+
+ptldcmntnr$distintvptldcmnt1<-1/ptldcmntnr$NRDistM
+ptldcmntnr$distintvptldcmnt2<-(1/ptldcmntnr$NRDistM)^2
+
+ptldcmntnr$NRDistM<-NULL
+write.csv(ptldcmntnr, "ptldcmnt_nr.csv", row.names = F)
+
+
+# Distance to TEP Generating Station off I10, Tucson
+d <- st_distance(addrs, tepplant)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+tepplantnr <- cbind(addrsdf, min.d_df)
+tepplantnr <- subset(tepplantnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(railyardnr)[1]<-"hhid"
+names(tepplantnr)[2]<-"NRDistM"
+
+tepplantnr$distintvtepplant1<-1/tepplantnr$NRDistM
+tepplantnr$distintvtepplant2<-(1/tepplantnr$NRDistM)^2
+
+tepplantnr$NRDistM<-NULL
+write.csv(tepplantnr, "tepplant_nr.csv", row.names = F)
 
 
 
@@ -484,14 +674,48 @@ write.csv(caline, "caline.csv", row.names = F)
 
 #### Create coordinate point predictors ####
 
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+addrs <- st_read("Sites.shp", stringsAsFactors = F)
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+
+addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
+
+
 addrs$Xcoord <- st_coordinates(addrs)[,1]
 addrs$Ycoord <- st_coordinates(addrs)[,2]
 
 addrs$XplusY <- addrs$Xcoord + addrs$Ycoord
 addrs$XminusY <- addrs$Xcoord - addrs$Ycoord
 
+st_geometry(addrs) <- NULL
 
-#### Combine all predictors ####
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+write.csv(addrs, "coords.csv", row.names = F)
+
+
+#### Create NO2/NOx Ratio & Combine all predictors ####
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+results <- read.csv("TAPSdata.csv")
+
+# Create NO2/NOx Ratio
+results$no2noxratio_adj <- results$no2_adj/results$nox_adj
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+addrs <- st_read("Sites.shp", stringsAsFactors = F)
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+
+addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+
+addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
+
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 
 #create a dataframe from the addrs feature by dropping the geometry fields
@@ -508,10 +732,10 @@ lurdata <- datalist %>%
   Reduce(function(x,y) left_join(x,y,by="hhid_x"), .)
 
 #correct outcomes by replacing NA to 0, starting with 12th column (land use info)
-lurdata[, 12:ncol(lurdata)][is.na(lurdata[, 12:ncol(lurdata)])] <- 0
+lurdata[, 13:ncol(lurdata)][is.na(lurdata[, 13:ncol(lurdata)])] <- 0
 
 #correct outcomes by replacing 0 to NA, starting with 11th column (land use info)
-lurdata[, 1:11][lurdata[, 1:11]==0] <- NA
+lurdata[, 1:12][lurdata[, 1:12]==0] <- NA
 
 
 
@@ -523,6 +747,7 @@ lurdata[, 1:11][lurdata[, 1:11]==0] <- NA
 lurdata <- subset(lurdata, lurdata$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
 lurdata <- subset(lurdata, lurdata$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
 lurdata <- subset(lurdata, lurdata$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
+lurdata <- subset(lurdata, lurdata$hhid_x != "HV75_A") #dropped as this has no measures completed, thus excluding it
 
 
 #univariate regressions to find starting variable for NO2
@@ -535,6 +760,11 @@ sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_n
 lapply( lurdata[,-1], function(x) summary(lm(lurdata$nox_adj ~ x)) )
 sink()#stops diverting output
 
+#univariate regressions to find starting variable for NO2/NOx ratio
+sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_no2noxratadj.txt")#saves output to text file
+lapply( lurdata[,-1], function(x) summary(lm(lurdata$no2noxratio_adj ~ x)) )
+sink()#stops diverting output
+
 #univariate regressions to find starting variable for PM2.5
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm25adj.txt")#saves output to text file
 lapply( lurdata[,-1], function(x) summary(lm(lurdata$pm25_adj ~ x)) )
@@ -544,6 +774,8 @@ sink()#stops diverting output
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm10adj.txt")#saves output to text file
 lapply( lurdata[,-1], function(x) summary(lm(lurdata$pm10_adj ~ x)) )
 sink()#stops diverting output
+
+
 
 #### Summary stats ####
 
@@ -564,12 +796,45 @@ lurdata %>%
             min=min(pm25_adj),
             max=max(pm25_adj))
 
-#### Create NO2/NOx Ratio + Summary maps ####
+no2 <- ggplot(lurdata, aes(no2_adj)) +
+  geom_dotplot() +
+  labs(x=expression(paste(NO[2], " Conc. (ppb)"))) +
+  theme(text = element_text(size=20))
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Charts")
+ggsave(filename = "no2.jpg", plot = no2, width = 8.25, height = 5.5, dpi = 300)
+
+
+nox <- ggplot(lurdata, aes(nox_adj)) +
+  geom_dotplot() +
+  labs(x=expression(paste(NO[x], " Conc. (ppb)"))) +
+  theme(text = element_text(size=20))
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Charts")
+ggsave(filename = "nox.jpg", plot = nox, width = 8.25, height = 5.5, dpi = 300)
+
+
+pm25 <- ggplot(lurdata, aes(pm25_adj)) +
+  geom_dotplot() +
+  labs(x=expression(paste(PM[2.5], " Conc. (", mu, g/m^3,")"))) +
+  theme(text = element_text(size=20))
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Charts")
+ggsave(filename = "pm25.jpg", plot = pm25, width = 8.25, height = 5.5, dpi = 300)
+
+
+pm10 <- ggplot(lurdata, aes(pm10_adj)) +
+  geom_dotplot() +
+  labs(x=expression(paste(PM[10], " Conc. (", mu, g/m^3,")"))) +
+  theme(text = element_text(size=20))
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Charts")
+ggsave(filename = "pm10.jpg", plot = pm10, width = 8.25, height = 5.5, dpi = 300)
+
+  
+#### Summary maps ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
 results <- read.csv("TAPSdata.csv")
-
-# Create NO2/NOx Ratio
-results$no2noxratio_adj <- results$no2_adj/results$nox_adj
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
 addrs <- st_read("Sites.shp", stringsAsFactors = F)
@@ -601,6 +866,10 @@ addrs.spdf$longitude <- addrs.spdf@coords[,1]
 addrs.spdf$latitude <- addrs.spdf@coords[,2]
 addrs.df <- data.frame(addrs.spdf)
 
+#Drop home without any air measures
+addrs.df <- filter(addrs.df, !is.na(no2_adj))
+
+
 # Drop excess coordinate fields
 #addrs.df <- select(addrs.df, hhid_x, long, lat)
 
@@ -609,6 +878,8 @@ map <- leaflet(data = addrs.df) %>%
   addProviderTiles("Stamen.TonerLite", group = "Toner Lite")
 
 # Create a continuous palette function for pollutants
+
+
 no2_pal = colorNumeric(
   palette = "Oranges",
   domain = addrs.df$no2_adj
@@ -619,20 +890,171 @@ nox_pal = colorNumeric(
   domain = addrs.df$nox_adj
 )
 
+addrs.df.pm <- filter(addrs.df, !is.na(pm25_adj))
+
+pm25_pal = colorNumeric(
+  palette = "Blues",
+  domain = addrs.df.pm$pm25_adj
+)
+
+pm10_pal = colorNumeric(
+  palette = "Greens",
+  domain = addrs.df.pm$pm10_adj
+)
+
+
 #NO2 Map
 map %>%
   addCircleMarkers(stroke = T,
                    opacity=1,
                    radius=3,
                    color=~no2_pal(addrs.df$no2_adj),
-                              popup = addrs.df$hhid_x)
+                   popup = as.character(addrs.df$no2_adj)) %>%
+  addLegend(pal = no2_pal, 
+            value = addrs.df$no2_adj, 
+            opacity = 1,
+            title="NO2  Conc. (ppb)")
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+  
 #NOx Map
 map %>%
   addCircleMarkers(stroke = T,
                    opacity=1,
                    radius=3,
                    color=~nox_pal(addrs.df$nox_adj),
-                   popup = addrs.df$hhid_x)
+                   popup = as.character(addrs.df$nox_adj)) %>%
+  addLegend(pal = nox_pal, 
+            value = addrs.df$nox_adj, 
+            opacity = 1,
+            title="NOx  Conc. (ppb)")
+
+#PM2.5 Map
+map %>% 
+  addCircleMarkers(data = addrs.df.pm,
+                   stroke = T,
+                   opacity=1,
+                   radius=3,
+                   color=~pm25_pal(addrs.df.pm$pm25_adj),
+                   popup = as.character(addrs.df.pm$pm25_adj)) %>%
+  addLegend(pal = pm25_pal, 
+            value = addrs.df.pm$pm25_adj, 
+            opacity = 1,
+            title="PM2.5  Conc. (ug/m^3)")
+
+#PM10 Map
+map %>%
+  addCircleMarkers(data = addrs.df.pm,
+                   stroke = T,
+                   opacity=1,
+                   radius=3,
+                   color=~pm10_pal(addrs.df.pm$pm10_adj),
+                   popup = as.character(addrs.df.pm$pm10_adj)) %>%
+  addLegend(pal = pm10_pal, 
+            value = addrs.df.pm$pm10_adj, 
+            opacity = 1,
+            title="PM10  Conc. (ug/m^3)")
+
+#### Tmap approach ####
+
+library(devtools)
+install_github("mtennekes/tmaptools")
+install_github("mtennekes/tmap")
+install.packages("OpenStreetMap")
+install.packages("ggmap")
+
+library("OpenStreetMap")
+library("tmap", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
+library("tmaptools", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
+library("ggmap")
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+results <- read.csv("TAPSdata.csv")
+
+# Create NO2/NOx Ratio
+#results$no2noxratio_adj <- results$no2_adj/results$nox_adj
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+addrs <- st_read("Sites.shp", stringsAsFactors = F)
+
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
+
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+
+#drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
+addrs <- subset(addrs, addrs$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
+
+addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+
+addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
+
+#Shapefiles
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+pima <- st_read("Pima_1.shp", stringsAsFactors = F)
+
+#Update all CRS to those of addresses
+pima <- pima  %>% st_set_crs(NA) %>% st_set_crs(2868)
+
+st_transform(pima, crs = 2868)
+
+tmap_mode("view")
+
+addrs <- filter(addrs, !is.na(no2_adj))
+
+no2 <- tm_shape(addrs) +
+  tm_dots("no2_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="NO2 Conc. (ppb)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(no2, "no2.html")
+
+nox <- tm_shape(addrs) +
+  tm_dots("nox_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="NOx Conc. (ppb)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(nox, "nox.html")
+
+pm25 <- tm_shape(addrs) +
+  tm_dots("pm25_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="PM2.5 Conc. (ug/m^3)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(pm25, "pm25.html")
+
+
+pm10 <- tm_shape(addrs) +
+  tm_dots("pm10_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="PM10 Conc. (ug/m^3)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(pm10, "pm10.html")
 
 #### LUR analysis based on ESCAPE protocol - NO2 ####
 
@@ -644,6 +1066,21 @@ no2adj <- (lm(no2_adj~lu_hr_1000 +
                 roads_rl_1000
               ,data=lurdata))
 summary(no2adj)
+
+
+# Save model for production of raster grid
+lm_no2adj <- (lm(no2_adj~lu_hr_1000 +
+                distintvrail1 +
+                elev +
+                roads_rl_1000
+              ,data=lurdata))
+
+# Create max values of predictors
+max_lu_hr_1000 <- max(lurdata$lu_hr_1000)
+max_distintvrail1 <- max(lurdata$distintvrail1)
+max_elev <- max(lurdata$elev)
+max_roads_rl_1000 <- max(lurdata$roads_rl_1000)
+
 
 #check for multicollinearity
 vif(no2adj) # problem?
@@ -670,7 +1107,9 @@ model_loocv <- train(no2_adj~lu_hr_1000 +
 # summarize results
 print(model_loocv)
 
-
+#RMSE
+RMSE <- function(error) { sqrt(mean(error^2)) }
+RMSE(no2adj$residuals)
 
 
 #Hold-out Validation
@@ -715,15 +1154,17 @@ plot(no2adj, labels.id = lurdata$hhid_x)
 noxadj <- (lm(nox_adj~
                 lu_hr_1000 +
                 distintvmine1 +
-                #distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
+                # distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
                 elev +
-                #lu_hr_5000 +
-                #lu_nt_100 +
-                #mroads_tl_50 +
-                #roads_rl_100 +
-                (roads_rl_1000- roads_rl_100) #as per ESCAPE, variables of same source are subtracted from each other
-              ,data=subset(lurdata, (hhid_x != "ZD62_A" & !is.na(nox_adj))))) # NOTE - home removed due to Cook's D over 1
+                # lu_hr_5000 +
+                # lu_nt_100 +
+                # mroads_tl_50 + 
+                roads_rl_500 +
+                trafmajor 
+                # hdnear
+              ,data=subset(lurdata, !is.na(nox_adj)))) 
 summary(noxadj)
+
 
 #check for multicollinearity
 vif(noxadj) # problem?
@@ -745,32 +1186,33 @@ train_control <- trainControl(method="LOOCV")
 model_loocv <- train(nox_adj~
                        lu_hr_1000 +
                        distintvmine1 +
+                       distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
                        elev +
-                       #roads_rl_100 +
-                       (roads_rl_1000-roads_rl_100)
-                     ,data=subset(lurdata, (hhid_x != "ZD62_A" & !is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
+                       roads_rl_500 +
+                       trafmajor 
+                     ,data=subset(lurdata, (!is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
 # summarize results
 print(model_loocv)
 
 
 
 
-#Hold-out Validation
-set.seed(1)
-in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
-training <- lurdata[ in_train,]
-testing  <- lurdata[-in_train,]
-
-nrow(lurdata)
-nrow(training)
-nrow(testing)
-
-model_hov <- train(nox_adj~lu_hr_1000 +
-                     distintvrail1 +
-                     elev +
-                     roads_rl_1000
-                   , data = training, method = "lm")
-print(model_hov)
+# #Hold-out Validation
+# set.seed(1)
+# in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
+# training <- lurdata[ in_train,]
+# testing  <- lurdata[-in_train,]
+# 
+# nrow(lurdata)
+# nrow(training)
+# nrow(testing)
+# 
+# model_hov <- train(nox_adj~lu_hr_1000 +
+#                      distintvrail1 +
+#                      elev +
+#                      roads_rl_1000
+#                    , data = training, method = "lm")
+# print(model_hov)
 
 
 
@@ -791,18 +1233,21 @@ nox_r<-nox_r[,keep]
 par(mfrow = c(2, 2))
 plot(noxadj, labels.id = lurdata$hhid_x)
 
+# Save model for production of raster grid
+lm_noxadj <- noxadj
 
 
 #### LUR analysis based on ESCAPE protocol - PM2.5 ####
 
 pm25adj <- (lm(pm25_adj~
-                 #elev +
+                 # elev +
                  busrt_l_300 +
-                 #distintvair1 +
-                 Xcoord
-               
-               ,data=lurdata))
+                 # distintvair1 + #Removed to reduce influence of CB67A
+                 Xcoord +
+                 hd_500
+               ,data=filter(lurdata,!is.na(pm25_adj))))
 summary(pm25adj)
+
 
 #check for multicollinearity
 vif(pm25adj) # problem?
@@ -821,31 +1266,34 @@ plot(pm25adj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
 # define training control
 train_control <- trainControl(method="LOOCV")
 # train the model
-model_loocv <- train(pm25_adj~busrt_l_300 +
-                       Xcoord
+model_loocv <- train(pm25_adj~
+                       busrt_l_300 +
+                       distintvair1 +
+                       Xcoord +
+                       hd_500
                      ,data=filter(lurdata, !is.na(pm25_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
 
 
 
-
-#Hold-out Validation
-set.seed(1)
-in_train <- createDataPartition(lurdata$pm25_adj, p = 2/3, list = FALSE)
-training <- lurdata[ in_train,]
-testing  <- lurdata[-in_train,]
-
-nrow(lurdata)
-nrow(training)
-nrow(testing)
-
-model_hov <- train(pm25_adj~busrt_l_300 +
-                     Xcoord
-                   , data = training, method = "lm")
-print(model_hov)
-
-
+# 
+# #Hold-out Validation
+# set.seed(1)
+# in_train <- createDataPartition(lurdata$pm25_adj, p = 2/3, list = FALSE)
+# training <- lurdata[ in_train,]
+# testing  <- lurdata[-in_train,]
+# 
+# nrow(lurdata)
+# nrow(training)
+# nrow(testing)
+# 
+# model_hov <- train(pm25_adj~busrt_l_300 +
+#                      Xcoord
+#                    , data = training, method = "lm")
+# print(model_hov)
+# 
+# 
 
 
 fitpm25<-summary(pm25adj) #final model
@@ -864,20 +1312,28 @@ pm25_r<-pm25_r[,keep]
 par(mfrow = c(2, 2))
 plot(pm25adj, labels.id = lurdata$hhid_x)
 
+
+# Save model for production of raster grid
+lm_pm25adj <- pm25adj
+
+
 #### LUR analysis based on ESCAPE protocol - PM10 ####
 
 pm10adj <- (lm(pm10_adj~
                  lu_hr_500 +
-                 #distintvair1 +
-                 #distintvmine1 +
-                 #distintvrail1 +
+                 # distintvair1 +
+                 # distintvmine1 +
+                 # distintvrail1 +
                  lu_nt_100 +
-                 #lu_ug_5000 +
-                 #roads_tl_500 +
-                 XplusY
-               
-               ,data=lurdata))
+                 # lu_ug_5000 +
+                 # roads_tl_500 +
+                 XplusY 
+                 # stspeed_sl_500
+               ,data=filter(lurdata,!is.na(pm10_adj))))
 summary(pm10adj)
+
+AIC(pm10adj)
+AICc(pm10adj)
 
 #check for multicollinearity
 vif(pm10adj) # problem?
@@ -890,6 +1346,7 @@ vif(pm10adj) # problem?
 cutoff <- 4/((nrow(lurdata)-length(pm10adj$coefficients)-2)) 
 plot(pm10adj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
 
+
 #Validation
 
 #Leave one out Cross Validation
@@ -899,32 +1356,10 @@ train_control <- trainControl(method="LOOCV")
 model_loocv <- train(pm10_adj~
                        lu_hr_500 +
                        lu_nt_100 +
-                       XplusY
+                       XplusY 
                      ,data=filter(lurdata, !is.na(pm10_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
-
-
-
-
-#Hold-out Validation
-set.seed(1)
-in_train <- createDataPartition(lurdata$pm10_adj, p = 2/3, list = FALSE)
-training <- lurdata[ in_train,]
-testing  <- lurdata[-in_train,]
-
-nrow(lurdata)
-nrow(training)
-nrow(testing)
-
-model_hov <- train(pm10_adj~
-                     lu_hr_500 +
-                     lu_nt_100 +
-                     XplusY
-                   , data = training, method = "lm")
-print(model_hov)
-
-
 
 
 fitpm10<-summary(pm10adj) #final model
@@ -942,6 +1377,9 @@ pm10_r<-pm10_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(pm10adj, labels.id = lurdata$hhid_x)
+
+# Save model for production of raster grid
+lm_pm10adj <- pm10adj
 
 
 #### Create residual output ####
@@ -972,7 +1410,7 @@ resids <- subset(resids, resids$hhid_x != "WF34_A") #dropped as this is almost <
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
 
-st_write(resids, "TAPS_Residuals.shp")
+st_write(resids, "TAPS_Residuals.shp", delete_layer = T)
 
 resids.df <- resids
 
@@ -1025,3 +1463,77 @@ map %>%
   #   overlayGroups = c("Quakes", "Outline"),
   #   options = layersControlOptions(collapsed = FALSE)
   # )
+
+#### Validate TAPS LURs on PCWS 1987 Measures ####
+
+#Validation
+
+#NO2
+#NOTE - lu_hr_1000 DOES NOT EXIST in NLCD 1992 data, so we add it manually
+rdata$lu_hr_1000 <- 0
+
+rdata$lu_hr_1000 <- rdata$cm_1000
+
+rdata$roads_rl_1000 <- rdata$rl_1000
+
+rdata$no2adj_taps_pred <- predict(no2adj, newdata=rdata)
+
+# Calculate R^2
+print(postResample(rdata$no2adj_taps_pred,rdata$no2_adj))
+
+#NO2
+#NOTE - lu_hr_1000 DOES NOT EXIST in NLCD 1992 data, so we add it manually
+rdata_2obs$lu_hr_1000 <- 0
+
+rdata_2obs$lu_hr_1000 <- rdata_2obs$cm_1000
+
+rdata_2obs$roads_rl_1000 <- rdata_2obs$rl_1000
+
+rdata_2obs$no2adj_taps_pred <- predict(no2adj, newdata=rdata_2obs)
+
+# Calculate R^2
+print(postResample(rdata_2obs$no2adj_taps_pred,rdata_2obs$no2_adj))
+
+# Residuals
+rdata_2obs$no2adj_taps_resids <- rdata_2obs$no2_adj - rdata_2obs$no2adj_taps_pred
+
+summary(rdata_2obs$no2adj_taps_resids)
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+
+write.csv(rdata_2obs,"TAPS_NO2_ExtPCWS87_Eval.csv")
+
+#PM25
+rdata$lu_hr_1000 <- 0
+
+rdata$busrt_l_300 <- rdata$bl_300
+
+rdata$Xcoord <- 0
+
+rdata_pm25only <- filter(rdata, !is.na(pm25_adj))
+
+rdata_pm25only$pm25adj_taps_pred <- predict(pm25adj, newdata=rdata_pm25only)
+
+# Calculate R^2
+print(postResample(rdata_pm25only$pm25adj_taps_pred,rdata_pm25only$pm25_adj))
+
+
+
+#PM10
+rdata$lu_hr_500 <- 0 #NOT PRESENT IN 1992 NLCD
+
+rdata$lu_nt_100 <- rdata$nt_100
+
+rdata$busrt_l_300 <- rdata$bl_300
+
+rdata$XplusY <- 0
+
+rdata_pm10only <- filter(rdata, !is.na(pm10_adj))
+
+rdata_pm10only$pm10adj_taps_pred <- predict(pm10adj, newdata=rdata_pm10only)
+
+# Calculate R^2
+print(postResample(rdata_pm10only$pm10adj_taps_pred,rdata_pm10only$pm10_adj))
+
+
+
