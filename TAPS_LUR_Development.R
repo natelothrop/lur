@@ -40,9 +40,9 @@ addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
 
 #### Load, transform if need, predictor rasters and shapfiles ####
 
-#Rasters
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
-elev_rast <- raster("dem.tif")
+# #Rasters
+# setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
+# elev_rast <- raster("dem.tif")
 
 #Shapefiles
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
@@ -956,106 +956,6 @@ map %>%
             opacity = 1,
             title="PM10  Conc. (ug/m^3)")
 
-#### Tmap approach ####
-
-library(devtools)
-install_github("mtennekes/tmaptools")
-install_github("mtennekes/tmap")
-install.packages("OpenStreetMap")
-install.packages("ggmap")
-
-library("OpenStreetMap")
-library("tmap", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
-library("tmaptools", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
-library("ggmap")
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
-results <- read.csv("TAPSdata.csv")
-
-# Create NO2/NOx Ratio
-#results$no2noxratio_adj <- results$no2_adj/results$nox_adj
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("Sites.shp", stringsAsFactors = F)
-
-addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
-st_transform(addrs, crs = 2868)
-
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
-
-#drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
-addrs <- subset(addrs, addrs$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
-addrs <- subset(addrs, addrs$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
-addrs <- subset(addrs, addrs$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
-
-addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-
-addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
-
-#Shapefiles
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-pima <- st_read("Pima_1.shp", stringsAsFactors = F)
-
-#Update all CRS to those of addresses
-pima <- pima  %>% st_set_crs(NA) %>% st_set_crs(2868)
-
-st_transform(pima, crs = 2868)
-
-tmap_mode("view")
-
-addrs <- filter(addrs, !is.na(no2_adj))
-
-no2 <- tm_shape(addrs) +
-  tm_dots("no2_adj", 
-          size = .1,
-          style="kmeans",
-          palette="Reds",
-          title="NO2 Conc. (ppb)") +
-  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
-
-tmap_save(no2, "no2.html")
-
-nox <- tm_shape(addrs) +
-  tm_dots("nox_adj", 
-          size = .1,
-          style="kmeans",
-          palette="Reds",
-          title="NOx Conc. (ppb)") +
-  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
-
-tmap_save(nox, "nox.html")
-
-pm25 <- tm_shape(addrs) +
-  tm_dots("pm25_adj", 
-          size = .1,
-          style="kmeans",
-          palette="Reds",
-          title="PM2.5 Conc. (ug/m^3)") +
-  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
-
-tmap_save(pm25, "pm25.html")
-
-
-pm10 <- tm_shape(addrs) +
-  tm_dots("pm10_adj", 
-          size = .1,
-          style="kmeans",
-          palette="Reds",
-          title="PM10 Conc. (ug/m^3)") +
-  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
-
-tmap_save(pm10, "pm10.html")
-
 #### LUR analysis based on ESCAPE protocol - NO2 ####
 
 no2adj <- (lm(no2_adj~lu_hr_1000 +
@@ -1302,12 +1202,9 @@ fitpm25<-summary(pm25adj) #final model
 attributes(fitpm25)
 fitpm25.r<-fitpm25$residuals
 
-pm25_r<-merge(fitpm25.r,lurdata, by=c("row.names"), all=T)
+pm25_r<-merge(fitpm25.r,filter(lurdata, !is.na(pm25_adj)), by=c("row.names"), all=T)
 names(pm25_r)[2]<-"pm25_r"
 pm25_r <- dplyr::select(pm25_r, hhid_x, pm25_r)
-
-keep<-c(2:3)
-pm25_r<-pm25_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(pm25adj, labels.id = lurdata$hhid_x)
@@ -1368,12 +1265,9 @@ fitpm10<-summary(pm10adj) #final model
 attributes(fitpm10)
 fitpm10.r<-fitpm10$residuals
 
-pm10_r<-merge(fitpm10.r,lurdata, by=c("row.names"), all=T)
+pm10_r<-merge(fitpm10.r,filter(lurdata, !is.na(pm10_adj)), by=c("row.names"), all=T)
 names(pm10_r)[2]<-"pm10_r"
 pm10_r <- dplyr::select(pm10_r, hhid_x, pm10_r)
-
-keep<-c(2:3)
-pm10_r<-pm10_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(pm10adj, labels.id = lurdata$hhid_x)
@@ -1434,35 +1328,71 @@ resids.df <- data.frame(resids.spdf)
 #              stroke = T, fillOpacity = 0.75
 #              )
 
-map <- leaflet(data = resids.df) %>% addTiles()
+resids.spdf.nox <- resids.spdf[!is.na(resids.spdf$no2_r),]
 
-pal_no2 <- colorNumeric("Reds", resids.df$no2_adj, n = 5)
+
+map <- leaflet(data = resids.spdf.nox) %>% addTiles()
+
+pal_no2_r <- colorNumeric("RdYlBu", resids.spdf.nox$no2_r, n = 5)
 
 map %>%
   addCircleMarkers(stroke = T, fillOpacity = 0.75,
-              color = ~pal_no2(no2_adj),
+              color = ~pal_no2_r(no2_r),
               label = ~hhid_x,
-              popup = paste("NO2:", format(round(resids.spdf$no2_adj, 2), nsmall = 2), "<br>",
-                            "NO2 Resid:", format(round(resids.spdf$no2_r, 2), nsmall = 2), "<br>")) %>%
-  addLegend(pal = pal_no2,
-            values = ~no2_adj,
-            title = "NO2 Concentration (ppb)",
+              popup = paste("NO2:", format(round(resids.spdf.nox$no2_adj, 2), nsmall = 2), "<br>",
+                            "NO2 Resid:", format(round(resids.spdf.nox$no2_r, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_no2_r,
+            values = ~no2_r,
+            title = "NO2 Model Resids. (ppb)",
             opacity = 0.75) 
 
-# addMinicharts(
-#   resids.df$long, resids.df$lat,
-#   type = "pie",
-#   chartdata = resids.df[, c("no2_adj", "nox_adj")], 
-#   colorPalette = colors, 
-#   width = 2 * (resids.df$no2_adj + resids.df$nox_adj), transitionTime = 0,
-#   showLabels = T) %>%
+pal_nox_r <- colorNumeric("RdYlBu", resids.spdf$nox_r, n = 5)
 
-  # # Layers control
-  # addLayersControl(
-  #   baseGroups = c("OSM (default)", "Toner", "Toner Lite"),
-  #   overlayGroups = c("Quakes", "Outline"),
-  #   options = layersControlOptions(collapsed = FALSE)
-  # )
+map %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.90,
+                   color = ~pal_nox_r(nox_r),
+                   label = ~hhid_x,
+                   popup = paste("NOx:", format(round(resids.spdf.nox$nox_adj, 2), nsmall = 2), "<br>",
+                                 "NOx Resid:", format(round(resids.spdf.nox$nox_r, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_nox_r,
+            values = ~nox_r,
+            title = "NOx Model Resids. (ppb)",
+            opacity = 0.75)
+
+resids.spdf.pm25 <- resids.spdf[!is.na(resids.spdf$pm25_r),]
+
+map <- leaflet(data = resids.spdf.pm25) %>% addTiles()
+
+pal_pm25_r <- colorNumeric("RdYlBu", resids.spdf.pm25$pm25_r, n = 5)
+
+map %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.90,
+                   color = ~pal_pm25_r(pm25_r),
+                   label = ~hhid_x,
+                   popup = paste("PM2.5:", format(round(resids.spdf.pm25$pm25_adj, 2), nsmall = 2), "<br>",
+                                 "PM2.5 Resid:", format(round(resids.spdf.pm25$pm25_r, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_pm25_r,
+            values = ~pm25_r,
+            title = "PM2.5 Model Resids. (ug/m3)",
+            opacity = 0.75)
+
+resids.spdf.pm10 <- resids.spdf[!is.na(resids.spdf$pm10_r),]
+
+map <- leaflet(data = resids.spdf.pm10) %>% addTiles()
+
+pal_pm10_r <- colorNumeric("RdYlBu", resids.spdf.pm10$pm10_r, n = 5)
+
+map %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.90,
+                   color = ~pal_pm10_r(pm10_r),
+                   label = ~hhid_x,
+                   popup = paste("PM10:", format(round(resids.spdf.pm10$pm10_adj, 2), nsmall = 2), "<br>",
+                                 "PM10 Resid:", format(round(resids.spdf.pm10$pm10_r, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_pm10_r,
+            values = ~pm10_r,
+            title = "PM10 Model Resids. (ug/m3)",
+            opacity = 0.75)
+
 
 #### Validate TAPS LURs on PCWS 1987 Measures ####
 
@@ -1536,4 +1466,105 @@ rdata_pm10only$pm10adj_taps_pred <- predict(pm10adj, newdata=rdata_pm10only)
 print(postResample(rdata_pm10only$pm10adj_taps_pred,rdata_pm10only$pm10_adj))
 
 
+
+
+#### Tmap approach - NOT FINISHED - DO NOT RUN ####
+
+library(devtools)
+install_github("mtennekes/tmaptools")
+install_github("mtennekes/tmap")
+install.packages("OpenStreetMap")
+install.packages("ggmap")
+
+library("OpenStreetMap")
+library("tmap", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
+library("tmaptools", lib.loc="/Library/Frameworks/R.framework/Versions/3.4/Resources/library")
+library("ggmap")
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+results <- read.csv("TAPSdata.csv")
+
+# Create NO2/NOx Ratio
+#results$no2noxratio_adj <- results$no2_adj/results$nox_adj
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+addrs <- st_read("Sites.shp", stringsAsFactors = F)
+
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
+
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+
+#drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
+addrs <- subset(addrs, addrs$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
+addrs <- subset(addrs, addrs$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
+
+addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
+addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+
+addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
+
+#Shapefiles
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+pima <- st_read("Pima_1.shp", stringsAsFactors = F)
+
+#Update all CRS to those of addresses
+pima <- pima  %>% st_set_crs(NA) %>% st_set_crs(2868)
+
+st_transform(pima, crs = 2868)
+
+tmap_mode("view")
+
+addrs <- filter(addrs, !is.na(no2_adj))
+
+no2 <- tm_shape(addrs) +
+  tm_dots("no2_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="NO2 Conc. (ppb)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(no2, "no2.html")
+
+nox <- tm_shape(addrs) +
+  tm_dots("nox_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="NOx Conc. (ppb)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(nox, "nox.html")
+
+pm25 <- tm_shape(addrs) +
+  tm_dots("pm25_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="PM2.5 Conc. (ug/m^3)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(pm25, "pm25.html")
+
+
+pm10 <- tm_shape(addrs) +
+  tm_dots("pm10_adj", 
+          size = .1,
+          style="kmeans",
+          palette="Reds",
+          title="PM10 Conc. (ug/m^3)") +
+  tm_view(alpha = 1, basemaps = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}')
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
+
+tmap_save(pm10, "pm10.html")
 
