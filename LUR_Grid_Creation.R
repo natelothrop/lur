@@ -85,26 +85,12 @@ ptldcmnt <- st_read("portlandcementplant.shp", stringsAsFactors = F)
 tepplant <- st_read("tep_station.shp", stringsAsFactors = F)
 stspeed <- st_read("stspeed.shp", stringsAsFactors = F)
 histdev <- st_read("dev_hist.shp", stringsAsFactors = F)
-# 
-# shp_import <- function(shapefile_name, data_name){
-#   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-#   data_name <- st_read(shapefile_name, stringsAsFactors = F)
-#   data_name <- data_name  %>% st_set_crs(NA) %>% st_set_crs(2868)
-#   data_name <- st_transform(data_name, crs = 2868)
-#   data_name
-# }
-# 
-# shp_import("Airrunway_1.shp", "air")
-
 
 lu <- st_read("nlcd2011_pimaclippolygon.shp", stringsAsFactors = F)
 # lu <- st_read("nlcd1992.shp", stringsAsFactors = F)
 
 # Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
 roads <- roads[ , grepl( "VD" , names( roads ) ) ]
-
-# Update lu's grid code text
-lu$GRIDCODE <- lu$grid_code
 
 #Update all CRS to those of addresses
 addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
@@ -140,6 +126,11 @@ st_transform(histdev, crs = 2868)
 
 # Drop developments with no units listed
 histdev <- filter(histdev, UNITS>0)
+
+# Create Davis Monthan AFB and Tucson Airport predictors
+dmafb <- filter(air, NAME == "DAVIS-MONTHAN AIR FORCE BASE")
+tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
+
 
 #elev_rast <- projectRaster(elev_rast, crs=crs_raster)
 
@@ -205,15 +196,12 @@ write.csv(elev, "elev.csv",row.names = F)
 #### Polygon areal predictors - Land Use - 1992 NLCD ####
 
 #Land uses weighted to area
-abuffdists <- c(100)
-abuffdists <- c(300)
-abuffdists <- c(500)
-abuffdists <- c(1000)
-abuffdists <- c(5000)
+abuffdists <- c(100, 300, 500, 1000, 5000)
+
 
 
 intx_lu <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Predictors")
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/1992")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
   intx <- intx %>%
     mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
@@ -257,19 +245,21 @@ intx_lu <- function(p,abuffdists,i){
   names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
   names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
   
-  write.csv(intx, paste0("lu_",as.character(abuffdists),".csv"),row.names = F)
+  write.csv(intx, paste0("lu_1992_",as.character(abuffdists),".csv"),row.names = F)
 }
 
 predictors <- list("lu" = lu)
 mapply(FUN = intx_lu, predictors, abuffdists)
 
-#### Polygon areal predictors - Land Use - 2010 NLCD ####
+#### Polygon areal predictors - Land Use - 2011 NLCD ####
 
 #Land uses weighted to area
 abuffdists <- c(100, 300, 500, 1000, 5000)
 
+
+
 intx_lu_2011 <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Predictors")
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/2011")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
   intx <- intx %>%
     mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
@@ -308,7 +298,7 @@ intx_lu_2011 <- function(p,abuffdists,i){
   names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
   names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
   
-  write.csv(intx, paste0("lu_",as.character(Prediction_Year), "_", as.character(abuffdists),".csv"),row.names = F)
+  write.csv(intx, paste0("lu_2011_", as.character(abuffdists),".csv"),row.names = F)
 }
 
 
@@ -323,7 +313,7 @@ abuffdists <- c(100, 300, 500, 1000, 5000)
 #Census population and households weighted to area
 intx_census <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Predictors")
-  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
   if (nrow(intx)>0) {
     intx <- intx %>%
       mutate(hhold_wtd = HHOLD * (st_area(intx)/Shape_Area)) %>%
@@ -692,6 +682,49 @@ minenr$NRDistM<-NULL
 write.csv(minenr, "mine_nr.csv", row.names = F)
 
 
+# Nearest DMAFB
+d <- st_distance(addrs, dmafb)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+dmafbnr <- cbind(addrsdf, min.d_df)
+dmafbnr <- subset(dmafbnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(airnr)[1]<-"hhid"
+names(dmafbnr)[2]<-"NRDistM"
+
+dmafbnr$distintvdmafb1<-1/dmafbnr$NRDistM
+dmafbnr$distintvdmafb2<-(1/dmafbnr$NRDistM)^2
+
+dmafbnr$NRDistM<-NULL
+write.csv(dmafbnr, "dmafb_nr.csv", row.names = F)
+
+
+# Nearest TIA (Tuc Intl Airport)
+d <- st_distance(addrs, tia)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+tianr <- cbind(addrsdf, min.d_df)
+tianr <- subset(tianr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(airnr)[1]<-"hhid"
+names(tianr)[2]<-"NRDistM"
+
+tianr$distintvtia1<-1/tianr$NRDistM
+tianr$distintvtia2<-(1/tianr$NRDistM)^2
+
+tianr$NRDistM<-NULL
+write.csv(tianr, "tia_nr.csv", row.names = F)
+
 
 # Nearest rail yard
 d <- st_distance(addrs, railyard)
@@ -757,7 +790,7 @@ write.csv(addrs, "coords.csv", row.names = F)
 #### Combine all predictors ####
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("grid_5284ft.shp", stringsAsFactors = F)
+addrs <- st_read("grid_5284ft_tucson.shp", stringsAsFactors = F)
 addrs$hhid_x <- seq.int(nrow(addrs))  + 20000
 addrs$OID_ <- NULL
 
@@ -771,13 +804,30 @@ setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Predictors")
 
 write.csv(addrs, "addrs.csv", row.names = F)
 
+# Add something here that loads the correct LU year file based on "Prediction_Year"
 
+# Selects the appropriate LU predictor files year to read
+LU_Year <- ifelse(Prediction_Year<1997, 1992,
+                 ifelse(Prediction_Year>=1997 & Prediction_Year<2003, 2001,
+                        ifelse(Prediction_Year>=2003 & Prediction_Year<2008, 2006, 2011))) 
+
+filename_lu=list.files(path=paste0("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/", as.character(LU_Year)), full.names=TRUE)
+gridlist_lu = lapply(filename_lu, function(x){read.csv(file=x,header=T)})
+
+
+#combine all LU predictor files
+griddata_lu <- gridlist_lu %>%
+  Reduce(function(x,y) left_join(x,y,by="hhid_x"), .)
+
+# Selects all other predictors to read
 filenames=list.files(path="/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Predictors", full.names=TRUE)
 gridlist = lapply(filenames, function(x){read.csv(file=x,header=T)})
 
 #combine the outcome and all predictor files
 griddata <- gridlist %>%
   Reduce(function(x,y) left_join(x,y,by="hhid_x"), .)
+
+griddata <- left_join(griddata, griddata_lu, by="hhid_x")
 
 # Drop OID arcgis artifact
 griddata$OID_ <- NULL
@@ -800,7 +850,10 @@ pred_pm25 <- predict(lm_pm25adj, griddata)
 pred_pm10 <- predict(lm_pm10adj, griddata)
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("grid_5284ft.shp", stringsAsFactors = F)
+addrs <- st_read("grid_5284ft_tucson.shp", stringsAsFactors = F)
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
+
 addrs$hhid_x <- seq.int(nrow(addrs))  + 20000
 
 addrs$pred_no2 <- pred_no2
@@ -808,8 +861,13 @@ addrs$pred_nox <- pred_nox
 addrs$pred_pm25 <- pred_pm25
 addrs$pred_pm10 <- pred_pm10
 
-st_write(addrs, dsn = "pred_grid.shp", layer = "pred_grid.shp", 
-         driver = "ESRI Shapefile", delete_dsn = TRUE)
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
+
+st_write(addrs, dsn = paste0("pred_grid_", Prediction_Year, ".shp"), layer = paste0("pred_grid", Prediction_Year, ".shp", 
+         driver = "ESRI Shapefile", delete_dsn = TRUE))
+
+
+
 
 addrs <- st_centroid(addrs)
 
@@ -820,9 +878,89 @@ addrs.spdf <- spTransform(addrs.spdf, CRS("+proj=longlat +datum=WGS84"))
 addrs.spdf$long <- addrs.spdf@coords[,1]
 addrs.spdf$lat <- addrs.spdf@coords[,2]
 
-# resids.df <- data.frame(resids.spdf)
-# 
-# resids.spdf.nox <- resids.spdf[!is.na(resids.spdf$no2_r),]
+addrs.df <- data.frame(addrs.spdf)
+
+pred_no2.spdf <- dplyr::select(addrs.df, long, lat, pred_no2)
+
+pred_no2.spdf <- transmute(pred_no2.spdf, 
+                           x = lat,
+                           y = long,
+                           z = pred_no2)
+
+coordinates(pred_no2.spdf) <- ~x+y 
+gridded(pred_no2.spdf) <- TRUE
+class(pred_no2.spdf)
+str(pred_no2.spdf@data)
+
+
+pred_no2.rast <- raster(pred_no2.spdf)
+
+crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
+
+pred_no2.rast <- raster::projectRaster(pred_no2.rast, from=, to=crs_raster)
+
+
+# Set up the colors
+val_no2 = as.numeric(addrs.spdf$z)
+pal_no2 = colorNumeric("Reds", val_no2, na.color = "transparent")
+
+# Made the map
+leaflet() %>% addProviderTiles("CartoDB.Positron") %>%
+  addRasterImage(pred_no2.rast, colors = pal_no2, opacity = 0.5) %>%
+  addLegend(pal = pal_no2, values = val_no2, title = "Number of Needs")
+
+
+
+
+
+map <- leaflet(data = addrs.spdf) %>% addTiles()
+
+pal_pm25 <- colorNumeric("Reds", addrs.spdf$pred_pm25, n = 5)
+
+map %>%
+  addCircleMarkers(stroke = F, fillOpacity = 0.50,
+             color = ~pal_pm25(pred_pm25),
+             label = ~hhid_x,
+             popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_pm25,
+            values = ~pred_pm25,
+            title = "PM2.5 Pred. Conc. (ug/m3)",
+            opacity = 0.75)
+
+
+
+
+
+
+
+
+
+addrs <- st_centroid(addrs)
+
+addrs.spdf <- as(addrs, "Spatial")
+
+addrs.spdf <- spTransform(addrs.spdf, CRS("+proj=longlat +datum=WGS84"))
+
+addrs.spdf$long <- addrs.spdf@coords[,1]
+addrs.spdf$lat <- addrs.spdf@coords[,2]
+
+map <- leaflet(data = addrs.spdf) %>% addTiles()
+
+pal_pm25 <- colorNumeric("Reds", addrs.spdf$pred_pm25, n = 5)
+
+map %>%
+  addMarkers(stroke = T, fillOpacity = 0.90,
+                   color = ~pal_pm25(pred_pm25),
+                   label = ~hhid_x,
+                   popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
+  addLegend(pal = pal_pm25,
+            values = ~pred_pm25,
+            title = "PM2.5 Pred. Conc. (ug/m3)",
+            opacity = 0.75)
+
+
+
+
 
 map <- leaflet(data = addrs.spdf) %>% addTiles()
 
@@ -837,6 +975,11 @@ map %>%
             values = ~pred_pm25,
             title = "PM2.5 Pred. Conc. (ug/m3)",
             opacity = 0.75)
+
+
+
+
+
 
 
 tmap_mode("view")

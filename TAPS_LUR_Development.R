@@ -5,8 +5,8 @@ rm(list=ls())
 
 #### Loading Packages ####
 
-packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 
-              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'AICcmodavg')
+packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'AICcmodavg',
+              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -102,6 +102,16 @@ histdev <- filter(histdev, UNITS>0)
 
 #define major roads as >5000 vehicles/day as per ESCAPE
 mroads <- subset(roads, roads$VD15>5000)
+
+# Create Davis Monthan AFB and Tucson Airport predictors
+dmafb <- filter(air, NAME == "DAVIS-MONTHAN AIR FORCE BASE")
+tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
+
+# other ideas to think about, direction of slop, bus stops, 
+
+
+
+
 
 
 #### Elevation raster at point ####
@@ -539,6 +549,8 @@ write.csv(histdevnr, "histdev_nr.csv", row.names = F)
 
 #### Nearest polygon (airports, active surface mines) and point (rail yard) sources ####
 
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+
 # Nearest airport runway
 d <- st_distance(addrs, air)
 min.d <- apply(d, 1, function(x) sort(x)[1])
@@ -559,6 +571,50 @@ airnr$distintvair2<-(1/airnr$NRDistM)^2
 
 airnr$NRDistM<-NULL
 write.csv(airnr, "air_nr.csv", row.names = F)
+
+
+# Nearest DMAFB
+d <- st_distance(addrs, dmafb)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+dmafbnr <- cbind(addrsdf, min.d_df)
+dmafbnr <- subset(dmafbnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(airnr)[1]<-"hhid"
+names(dmafbnr)[2]<-"NRDistM"
+
+dmafbnr$distintvdmafb1<-1/dmafbnr$NRDistM
+dmafbnr$distintvdmafb2<-(1/dmafbnr$NRDistM)^2
+
+dmafbnr$NRDistM<-NULL
+write.csv(dmafbnr, "dmafb_nr.csv", row.names = F)
+
+
+# Nearest TIA (Tuc Intl Airport)
+d <- st_distance(addrs, tia)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+tianr <- cbind(addrsdf, min.d_df)
+tianr <- subset(tianr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(airnr)[1]<-"hhid"
+names(tianr)[2]<-"NRDistM"
+
+tianr$distintvtia1<-1/tianr$NRDistM
+tianr$distintvtia2<-(1/tianr$NRDistM)^2
+
+tianr$NRDistM<-NULL
+write.csv(tianr, "tia_nr.csv", row.names = F)
 
 
 # Nearest active surface mine
@@ -873,13 +929,10 @@ addrs.df <- filter(addrs.df, !is.na(no2_adj))
 # Drop excess coordinate fields
 #addrs.df <- select(addrs.df, hhid_x, long, lat)
 
-# Map addrs
-map <- leaflet(data = addrs.df) %>% 
-  addProviderTiles("Stamen.TonerLite", group = "Toner Lite")
+# Create NO2/NOx ratio for mapping
+addrs.df$no2noxratio_adj <- addrs.df$no2_adj/addrs.df$nox_adj
 
 # Create a continuous palette function for pollutants
-
-
 no2_pal = colorNumeric(
   palette = "Oranges",
   domain = addrs.df$no2_adj
@@ -888,6 +941,11 @@ no2_pal = colorNumeric(
 nox_pal = colorNumeric(
   palette = "Reds",
   domain = addrs.df$nox_adj
+)
+
+noxratio_pal = colorNumeric(
+  palette = "Greys",
+  domain = addrs.df$no2noxratio_adj
 )
 
 addrs.df.pm <- filter(addrs.df, !is.na(pm25_adj))
@@ -904,10 +962,9 @@ pm10_pal = colorNumeric(
 
 
 #NO2 Map
-map %>%
-  addCircleMarkers(stroke = T,
-                   opacity=1,
-                   radius=3,
+map <- leaflet(data = addrs.df) %>% 
+  addTiles() %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.95,
                    color=~no2_pal(addrs.df$no2_adj),
                    popup = as.character(addrs.df$no2_adj)) %>%
   addLegend(pal = no2_pal, 
@@ -917,12 +974,13 @@ map %>%
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
 
+mapshot(map, url = "no2_taps_2015.html")
+
   
 #NOx Map
-map %>%
-  addCircleMarkers(stroke = T,
-                   opacity=1,
-                   radius=3,
+map <- leaflet(data = addrs.df) %>% 
+  addTiles() %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.95,
                    color=~nox_pal(addrs.df$nox_adj),
                    popup = as.character(addrs.df$nox_adj)) %>%
   addLegend(pal = nox_pal, 
@@ -930,12 +988,26 @@ map %>%
             opacity = 1,
             title="NOx  Conc. (ppb)")
 
+mapshot(map, url = "nox_taps_2015.html")
+
+#NO2/NOx Ratio Map
+map <- leaflet(data = addrs.df) %>% 
+  addTiles() %>%
+  addCircleMarkers(stroke = T, fillOpacity = 0.95,
+                   color=~noxratio_pal(addrs.df$no2noxratio_adj),
+                   popup = as.character(addrs.df$no2noxratio_adj)) %>%
+  addLegend(pal = noxratio_pal, 
+            value = addrs.df$no2noxratio_adj, 
+            opacity = 1,
+            title="NO2/NOx Ratio")
+
+mapshot(map, url = "noxratio_taps_2015.html")
+
 #PM2.5 Map
-map %>% 
+map <- leaflet(data = addrs.df.pm) %>% 
+  addTiles() %>% 
   addCircleMarkers(data = addrs.df.pm,
-                   stroke = T,
-                   opacity=1,
-                   radius=3,
+                   stroke = T, fillOpacity = 0.95,
                    color=~pm25_pal(addrs.df.pm$pm25_adj),
                    popup = as.character(addrs.df.pm$pm25_adj)) %>%
   addLegend(pal = pm25_pal, 
@@ -943,18 +1015,22 @@ map %>%
             opacity = 1,
             title="PM2.5  Conc. (ug/m^3)")
 
+mapshot(map, url = "pm25_taps_2015.html")
+
 #PM10 Map
-map %>%
+map <- leaflet(data = addrs.df.pm) %>% 
+  addTiles() %>%
   addCircleMarkers(data = addrs.df.pm,
-                   stroke = T,
-                   opacity=1,
-                   radius=3,
+                   stroke = T, fillOpacity = 0.95,
                    color=~pm10_pal(addrs.df.pm$pm10_adj),
                    popup = as.character(addrs.df.pm$pm10_adj)) %>%
   addLegend(pal = pm10_pal, 
             value = addrs.df.pm$pm10_adj, 
             opacity = 1,
             title="PM10  Conc. (ug/m^3)")
+
+mapshot(map, url = "pm10_taps_2015.html")
+
 
 #### LUR analysis based on ESCAPE protocol - NO2 ####
 
@@ -1003,7 +1079,7 @@ model_loocv <- train(no2_adj~lu_hr_1000 +
                        distintvrail1 +
                        elev +
                        roads_rl_1000
-                     ,data=lurdata, trControl=train_control, method="lm")
+                     ,data=filter(lurdata, !is.na(no2_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
 
@@ -1041,9 +1117,6 @@ fitno2.r<-fitno2$residuals
 no2_r<-merge(fitno2.r,lurdata, by=c("row.names"), all=T)
 names(no2_r)[2]<-"no2_r"
 no2_r <- dplyr::select(no2_r, hhid_x, no2_r)
-
-keep<-c(2:3)
-no2_r<-no2_r[,keep]
 
 par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
@@ -1127,9 +1200,6 @@ nox_r<-merge(fitnox.r,lurdata, by=c("row.names"), all=T)
 names(nox_r)[2]<-"nox_r"
 nox_r <- dplyr::select(nox_r, hhid_x, nox_r)
 
-keep<-c(2:3)
-nox_r<-nox_r[,keep]
-
 par(mfrow = c(2, 2))
 plot(noxadj, labels.id = lurdata$hhid_x)
 
@@ -1143,8 +1213,8 @@ pm25adj <- (lm(pm25_adj~
                  # elev +
                  busrt_l_300 +
                  # distintvair1 + #Removed to reduce influence of CB67A
-                 Xcoord +
-                 hd_500
+                 Xcoord 
+                 # hd_500
                ,data=filter(lurdata,!is.na(pm25_adj))))
 summary(pm25adj)
 
@@ -1168,9 +1238,7 @@ train_control <- trainControl(method="LOOCV")
 # train the model
 model_loocv <- train(pm25_adj~
                        busrt_l_300 +
-                       distintvair1 +
-                       Xcoord +
-                       hd_500
+                       Xcoord 
                      ,data=filter(lurdata, !is.na(pm25_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
@@ -1304,7 +1372,9 @@ resids <- subset(resids, resids$hhid_x != "WF34_A") #dropped as this is almost <
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
 
-st_write(resids, "TAPS_Residuals.shp", delete_layer = T)
+st_write(resids, "TAPS_Residuals_2015_nox.shp", delete_layer = T)
+st_write(filter(resids, !is.na(pm25_r)), "TAPS_Residuals_2015_pm.shp", delete_layer = T)
+
 
 resids.df <- resids
 
@@ -1321,11 +1391,12 @@ resids.df <- data.frame(resids.spdf)
 
 resids.spdf.nox <- resids.spdf[!is.na(resids.spdf$no2_r),]
 
-map <- leaflet(data = resids.spdf.nox) %>% addTiles()
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Maps")
 
 pal_no2_r <- colorNumeric("RdYlBu", resids.spdf.nox$no2_r, n = 5)
 
-map %>%
+map <- leaflet(data = resids.spdf.nox) %>% 
+  addTiles() %>%
   addCircleMarkers(stroke = T, fillOpacity = 0.75,
               color = ~pal_no2_r(no2_r),
               label = ~hhid_x,
@@ -1336,9 +1407,12 @@ map %>%
             title = "NO2 Model Resids. (ppb)",
             opacity = 0.75) 
 
+mapshot(map, url = "no2_taps_resids_2015.html")
+
 pal_nox_r <- colorNumeric("RdYlBu", resids.spdf$nox_r, n = 5)
 
-map %>%
+map <- leaflet(data = resids.spdf.nox) %>% 
+  addTiles() %>%
   addCircleMarkers(stroke = T, fillOpacity = 0.90,
                    color = ~pal_nox_r(nox_r),
                    label = ~hhid_x,
@@ -1349,13 +1423,14 @@ map %>%
             title = "NOx Model Resids. (ppb)",
             opacity = 0.75)
 
-resids.spdf.pm25 <- resids.spdf[!is.na(resids.spdf$pm25_r),]
+mapshot(map, url = "nox_taps_resids_2015.html")
 
-map <- leaflet(data = resids.spdf.pm25) %>% addTiles()
+resids.spdf.pm25 <- resids.spdf[!is.na(resids.spdf$pm25_r),]
 
 pal_pm25_r <- colorNumeric("RdYlBu", resids.spdf.pm25$pm25_r, n = 5)
 
-map %>%
+map <- leaflet(data = resids.spdf.pm25) %>% 
+  addTiles() %>%
   addCircleMarkers(stroke = T, fillOpacity = 0.90,
                    color = ~pal_pm25_r(pm25_r),
                    label = ~hhid_x,
@@ -1366,13 +1441,14 @@ map %>%
             title = "PM2.5 Model Resids. (ug/m3)",
             opacity = 0.75)
 
-resids.spdf.pm10 <- resids.spdf[!is.na(resids.spdf$pm10_r),]
+mapshot(map, url = "pm25_taps_resids_2015.html")
 
-map <- leaflet(data = resids.spdf.pm10) %>% addTiles()
+resids.spdf.pm10 <- resids.spdf[!is.na(resids.spdf$pm10_r),]
 
 pal_pm10_r <- colorNumeric("RdYlBu", resids.spdf.pm10$pm10_r, n = 5)
 
-map %>%
+map <- leaflet(data = resids.spdf.pm10) %>% 
+  addTiles() %>%
   addCircleMarkers(stroke = T, fillOpacity = 0.90,
                    color = ~pal_pm10_r(pm10_r),
                    label = ~hhid_x,
@@ -1382,6 +1458,8 @@ map %>%
             values = ~pm10_r,
             title = "PM10 Model Resids. (ug/m3)",
             opacity = 0.75)
+
+mapshot(map, url = "pm10_taps_resids_2015.html")
 
 
 #### Validate TAPS LURs on PCWS 1987 Measures ####
