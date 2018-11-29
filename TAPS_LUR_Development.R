@@ -33,6 +33,8 @@ addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
 
 addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
 
+addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(addrs, crs = 2868)
 
 
 
@@ -41,14 +43,15 @@ addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
 #### Load, transform if need, predictor rasters and shapfiles ####
 
 # #Rasters
-# setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
-# elev_rast <- raster("dem.tif")
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
+elev_rast <- raster("dem.tif")
 
 #Shapefiles
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
 air <- st_read("Airrunway_1.shp", stringsAsFactors = F)
 busrt <- st_read("busroute_1.shp", stringsAsFactors = F)
-census <- st_read("Census2010_1.shp", stringsAsFactors = F)
+busstops <- st_read("busstops.shp", stringsAsFactors = F)
+census <- st_read("Tracts2010.shp", stringsAsFactors = F)
 mines <- st_read("mines_1.shp", stringsAsFactors = F)
 rail <- st_read("railroad_1.shp", stringsAsFactors = F)
 railyard <- st_read("railroad_yardcentroid_1.shp", stringsAsFactors = F)
@@ -60,15 +63,17 @@ tepplant <- st_read("tep_station.shp", stringsAsFactors = F)
 stspeed <- st_read("stspeed.shp", stringsAsFactors = F)
 histdev <- st_read("dev_hist.shp", stringsAsFactors = F)
 
+vehtype <- st_read("Roads_VehicleType.shp", stringsAsFactors = F)
+
 
 
 # Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
 roads <- roads[ , grepl( "VD" , names( roads ) ) ]
 
 #Update all CRS to those of addresses
-addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
 air <- air  %>% st_set_crs(NA) %>% st_set_crs(2868)
 busrt <- busrt  %>% st_set_crs(NA) %>% st_set_crs(2868)
+busstops <- busstops  %>% st_set_crs(NA) %>% st_set_crs(2868)
 census <- census  %>% st_set_crs(NA) %>% st_set_crs(2868)
 mines <- mines  %>% st_set_crs(NA) %>% st_set_crs(2868)
 rail <- rail  %>% st_set_crs(NA) %>% st_set_crs(2868)
@@ -79,13 +84,15 @@ ptldcmnt <- ptldcmnt  %>% st_set_crs(NA) %>% st_set_crs(2868)
 tepplant <- tepplant  %>% st_set_crs(NA) %>% st_set_crs(2868)
 stspeed <- stspeed  %>% st_set_crs(NA) %>% st_set_crs(2868)
 histdev <- histdev  %>% st_set_crs(NA) %>% st_set_crs(2868)
+vehtype <- vehtype  %>% st_set_crs(NA) %>% st_set_crs(2868)
+
 
 crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
 
 
-st_transform(addrs, crs = 2868)
 st_transform(air, crs = 2868)
 st_transform(busrt, crs = 2868)
+st_transform(busstops, crs = 2868)
 st_transform(census, crs = 2868)
 st_transform(mines, crs = 2868)
 st_transform(rail, crs = 2868)
@@ -96,9 +103,14 @@ st_transform(ptldcmnt, crs = 2868)
 st_transform(tepplant, crs = 2868)
 st_transform(stspeed, crs = 2868)
 st_transform(histdev, crs = 2868)
+st_transform(vehtype, crs = 2868)
+
 
 # Drop developments with no units listed
 histdev <- filter(histdev, UNITS>0)
+
+# Drop bus stops that are inactive
+busstops <- filter(busstops, InService==1)
 
 #define major roads as >5000 vehicles/day as per ESCAPE
 mroads <- subset(roads, roads$VD15>5000)
@@ -118,27 +130,21 @@ tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
 
 elev_rast <- projectRaster(elev_rast, crs=crs_raster)
 
+addrs$elev <- raster::extract(elev_rast, as(addrs, "Spatial"), method='bilinear', df = F)
 
+addrs$elev <- sqrt(addrs$elev)
 
-addrs_spdf <- readOGR("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles", layer="Sites")
-addrs_spdf$hhid_x <- paste(addrs_spdf$HHID, addrs_spdf$HHIDX, sep="_") #make unique address ID
-
-proj4string(addrs_spdf) <- CRS("+init=epsg:2868")                   # set original projection
-addrs_spdf <- spTransform(addrs_spdf, CRS("+init=epsg:2868"))
-
-elev_df <- extract(x = elev_rast, y = addrs_spdf, method = 'bilinear', df = F)
-addrsdf <- as.data.frame(addrs_spdf)
-elev <- cbind(addrsdf, elev_df)
-elev$elev <- sqrt(elev$elev_df)
-elev <- subset(elev, select = c(hhid_x, elev))
-#names(elev)[1] <- "hhid"
+elev <- subset(addrs, select = c(hhid_x, elev))
 
 elev <- filter(elev, !is.na(elev))
+
+st_geometry(elev) <- NULL
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 
 write.csv(elev, "elev.csv",row.names = F)
 
+addrs$elev <- NULL
 
 
 
@@ -190,7 +196,6 @@ intx_lu <- function(p,abuffdists,i){
   write.csv(intx, paste0("lu_",as.character(abuffdists),".csv"),row.names = F)
 }
 
-
 predictors <- list("lu" = lu)
 mapply(FUN = intx_lu, predictors, abuffdists)
 
@@ -204,20 +209,33 @@ intx_census <- function(p,abuffdists,i){
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
   if (nrow(intx)>0) {
     intx <- intx %>%
-      mutate(hhold_wtd = HHOLD * (st_area(intx)/Shape_Area)) %>%
-      mutate(pop_wtd = POP * (st_area(intx)/Shape_Area))
+      mutate(intx_area = st_area(intx),
+             hh_intx_area = HHOLD * intx_area,
+             pop_intx_area = POP * intx_area) %>%
+      group_by(hhid_x) %>%
+      mutate(full_area = sum(intx_area),
+             full_hh_wtd = sum(hh_intx_area),
+             full_pop_wtd = sum(pop_intx_area),
+             hh_wtd = full_hh_wtd/full_area,
+             pop_wtd = full_pop_wtd/full_area)
     
-    hh <- data.frame(rowsum(x = intx$hhold_wtd, group = intx$hhid_x))
-    hh$hhid_x <- row.names(hh)
-    names(hh)[1] <- paste0("hh_",as.character(abuffdists))
-    rownames(hh) <- c()
+    hh <- data.frame(intx)
+    
+    hh <- hh %>% 
+      distinct(hhid_x, hh_wtd)
+    
+    names(hh)[2] <- paste0("hh_",as.character(abuffdists))
     write.csv(hh, paste0("hh_",as.character(abuffdists),".csv"),row.names = F)
     
-    pop <- data.frame(rowsum(x = intx$pop_wtd, group = intx$hhid_x))
-    pop$hhid_x <- row.names(pop)
-    names(pop)[1] <- paste0("pop_",as.character(abuffdists))
-    rownames(pop) <- c()
+    
+    pop <- data.frame(intx)
+    
+    pop <- pop %>% 
+      distinct(hhid_x, pop_wtd)
+    
+    names(pop)[2] <- paste0("pop_",as.character(abuffdists))
     write.csv(pop, paste0("pop_",as.character(abuffdists),".csv"),row.names = F)
+    
     
   } else {
     print("hhpop_",as.character(abuffdists)," had no intersections")
@@ -252,6 +270,70 @@ intx_histdev <- function(p,abuffdists,i){
 
 predictors <- list("histdev" = histdev)
 mapply(FUN = intx_histdev, predictors, abuffdists)
+
+#Time-Integrated NDVI:TIN	
+#Canopy photosynthetic activity across the entire growing season (interpolated NDVI).
+
+abuffdists <- c(100, 300, 500, 1000, 5000)
+
+intx_tin <- function(p,abuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      mutate(intx_area = st_area(intx),
+             tin_intx_area = av_TOTND2013v4 * intx_area) %>%
+      group_by(hhid_x) %>%
+      mutate(full_area = sum(intx_area),
+             full_tin_wtd = sum(tin_intx_area),
+             tin_wtd = full_tin_wtd/full_area)
+    
+    tin <- data.frame(intx)
+    
+    tin <- tin %>% 
+      distinct(hhid_x, tin_wtd)
+    
+    names(tin)[2] <- paste0("tin_",as.character(abuffdists))
+    write.csv(tin, paste0("tin_",as.character(abuffdists),".csv"),row.names = F)
+    
+  } else {
+    print("tin_",as.character(abuffdists)," had no intersections")
+  }
+}
+
+predictors <- list("ndvi" = ndvi_poly)
+mapply(FUN = intx_tin, predictors, abuffdists)
+
+#### Point areal predictors (Busstops) ####
+
+abuffdists <- c(100, 300, 500, 1000, 5000)
+
+intx_busstops <- function(p,abuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      group_by(hhid_x) %>%
+      mutate(busstop_sum = n())
+    
+    busstops <- data.frame(intx)
+    
+    busstops <- busstops %>% 
+      distinct(hhid_x, busstop_sum)
+    
+    names(busstops)[2] <- paste0("busstops_",as.character(abuffdists))
+    write.csv(busstops, paste0("busstops_",as.character(abuffdists),".csv"),row.names = F)
+    
+    
+  } else {
+    print("busstops_",as.character(abuffdists)," had no intersections")
+  }
+}
+
+predictors <- list("busstops" = busstops)
+mapply(FUN = intx_busstops, predictors, abuffdists)
+
+
 
 #### Line length of sources without vehicle loading in buffers (bus routes, rail lines) ####
 
@@ -549,9 +631,8 @@ write.csv(histdevnr, "histdev_nr.csv", row.names = F)
 
 #### Nearest polygon (airports, active surface mines) and point (rail yard) sources ####
 
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-
 # Nearest airport runway
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, air)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -574,6 +655,7 @@ write.csv(airnr, "air_nr.csv", row.names = F)
 
 
 # Nearest DMAFB
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, dmafb)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -596,6 +678,7 @@ write.csv(dmafbnr, "dmafb_nr.csv", row.names = F)
 
 
 # Nearest TIA (Tuc Intl Airport)
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, tia)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -618,6 +701,7 @@ write.csv(tianr, "tia_nr.csv", row.names = F)
 
 
 # Nearest active surface mine
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, mines)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -638,9 +722,30 @@ minenr$distintvmine2<-(1/minenr$NRDistM)^2
 minenr$NRDistM<-NULL
 write.csv(minenr, "mine_nr.csv", row.names = F)
 
+# Nearest bus stop
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+d <- st_distance(addrs, busstops)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df[1] <- NULL
 
+addrsdf <- as.data.frame(addrs)
+busstopnr <- cbind(addrsdf, min.d_df)
+busstopnr <- subset(busstopnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+
+#rename remaining fields
+#names(minenr)[1]<-"hhid"
+names(busstopnr)[2]<-"NRDistM"
+
+busstopnr$distintvbusstop1<-1/busstopnr$NRDistM
+busstopnr$distintvbusstop2<-(1/busstopnr$NRDistM)^2
+
+busstopnr$NRDistM<-NULL
+write.csv(busstopnr, "busstop_nr.csv", row.names = F)
 
 # Nearest rail yard
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, railyard)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -663,6 +768,7 @@ write.csv(railyardnr, "railyard_nr.csv", row.names = F)
 
 
 # Distance to Portland Cement Plant off I10, Marana
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, ptldcmnt)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -685,6 +791,7 @@ write.csv(ptldcmntnr, "ptldcmnt_nr.csv", row.names = F)
 
 
 # Distance to TEP Generating Station off I10, Tucson
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 d <- st_distance(addrs, tepplant)
 min.d <- apply(d, 1, function(x) sort(x)[1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
@@ -754,6 +861,7 @@ setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 write.csv(addrs, "coords.csv", row.names = F)
 
 
+#### **RUN FROM HERE** ####
 #### Create NO2/NOx Ratio & Combine all predictors ####
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")

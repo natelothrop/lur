@@ -18,10 +18,10 @@ package.check <- lapply(packages, FUN = function(x) {
   }
 })
 
-NDVI_path <- "/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters/ndvi/PHAVHRR1989V01_TIF" 
+NDVI_path <- "/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters/ndvi/PHAVHRR2013V01_TIF" 
 ndvi <- list.files(NDVI_path,
                             full.names = TRUE,
-                            pattern = "TOTND1989v4.tif$")
+                            pattern = "av_TOTND2013v4.tif$")
 
 ndvi <- raster(ndvi)
 
@@ -39,5 +39,41 @@ ndvi_crop <- crop(ndvi_proj, as(pima,"Spatial"))
 plot(ndvi_crop)
 
 ndvi_poly <- spex::polygonize(ndvi_crop)
+
+ndvi_poly <- ndvi_poly  %>% st_set_crs(NA) %>% st_set_crs(2868)
+st_transform(ndvi_poly, crs = 2868)
+
+#Time-Integrated NDVI:TIN	
+#Canopy photosynthetic activity across the entire growing season (interpolated NDVI).
+
+abuffdists <- c(100, 300, 500, 1000, 5000)
+
+intx_tin <- function(p,abuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      mutate(intx_area = st_area(intx),
+             tin_intx_area = av_TOTND2013v4 * intx_area) %>%
+      group_by(hhid_x) %>%
+      mutate(full_area = sum(intx_area),
+             full_tin_wtd = sum(tin_intx_area),
+             tin_wtd = full_tin_wtd/full_area)
+    
+    tin <- data.frame(intx)
+    
+    tin <- tin %>% 
+      distinct(hhid_x, tin_wtd)
+    
+    names(tin)[2] <- paste0("tin_",as.character(abuffdists))
+    write.csv(tin, paste0("tin_",as.character(abuffdists),".csv"),row.names = F)
+    
+  } else {
+    print("tin_",as.character(abuffdists)," had no intersections")
+  }
+}
+
+predictors <- list("ndvi" = ndvi_poly)
+mapply(FUN = intx_tin, predictors, abuffdists)
 
 
