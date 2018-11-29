@@ -40,71 +40,30 @@ st_transform(addrs, crs = 2868)
 
 
 
-#### Load, transform if need, predictor rasters and shapfiles ####
+#### Load and transform predictorshapfiles ####
 
-# #Rasters
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
-elev_rast <- raster("dem.tif")
+shape_input <- function(shp_name, sf_name) {
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+  sf_name <- st_read(shp_name, stringsAsFactors = F) %>%
+    st_set_crs(NA) %>% 
+    st_set_crs(2868) %>%
+    st_transform(crs = 2868)
+}
 
-#Shapefiles
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-air <- st_read("Airrunway_1.shp", stringsAsFactors = F)
-busrt <- st_read("busroute_1.shp", stringsAsFactors = F)
-busstops <- st_read("busstops.shp", stringsAsFactors = F)
-census <- st_read("Tracts2010.shp", stringsAsFactors = F)
-mines <- st_read("mines_1.shp", stringsAsFactors = F)
-rail <- st_read("railroad_1.shp", stringsAsFactors = F)
-railyard <- st_read("railroad_yardcentroid_1.shp", stringsAsFactors = F)
-roads <- st_read("Roads_v20170728.shp", stringsAsFactors = F)
-lu <- st_read("Tracts2010.shp", stringsAsFactors = F)
-
-ptldcmnt <- st_read("portlandcementplant.shp", stringsAsFactors = F)
-tepplant <- st_read("tep_station.shp", stringsAsFactors = F)
-stspeed <- st_read("stspeed.shp", stringsAsFactors = F)
-histdev <- st_read("dev_hist.shp", stringsAsFactors = F)
-
-vehtype <- st_read("Roads_VehicleType.shp", stringsAsFactors = F)
-
-
-
-# Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
-roads <- roads[ , grepl( "VD" , names( roads ) ) ]
-
-#Update all CRS to those of addresses
-air <- air  %>% st_set_crs(NA) %>% st_set_crs(2868)
-busrt <- busrt  %>% st_set_crs(NA) %>% st_set_crs(2868)
-busstops <- busstops  %>% st_set_crs(NA) %>% st_set_crs(2868)
-census <- census  %>% st_set_crs(NA) %>% st_set_crs(2868)
-mines <- mines  %>% st_set_crs(NA) %>% st_set_crs(2868)
-rail <- rail  %>% st_set_crs(NA) %>% st_set_crs(2868)
-railyard <- railyard  %>% st_set_crs(NA) %>% st_set_crs(2868)
-roads <- roads  %>% st_set_crs(NA) %>% st_set_crs(2868)
-lu <- lu  %>% st_set_crs(NA) %>% st_set_crs(2868)
-ptldcmnt <- ptldcmnt  %>% st_set_crs(NA) %>% st_set_crs(2868)
-tepplant <- tepplant  %>% st_set_crs(NA) %>% st_set_crs(2868)
-stspeed <- stspeed  %>% st_set_crs(NA) %>% st_set_crs(2868)
-histdev <- histdev  %>% st_set_crs(NA) %>% st_set_crs(2868)
-vehtype <- vehtype  %>% st_set_crs(NA) %>% st_set_crs(2868)
-
-
-crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
-
-
-st_transform(air, crs = 2868)
-st_transform(busrt, crs = 2868)
-st_transform(busstops, crs = 2868)
-st_transform(census, crs = 2868)
-st_transform(mines, crs = 2868)
-st_transform(rail, crs = 2868)
-st_transform(railyard, crs = 2868)
-st_transform(roads, crs = 2868)
-st_transform(lu, crs = 2868)
-st_transform(ptldcmnt, crs = 2868)
-st_transform(tepplant, crs = 2868)
-st_transform(stspeed, crs = 2868)
-st_transform(histdev, crs = 2868)
-st_transform(vehtype, crs = 2868)
-
+air <- shape_input("Airrunway_1.shp", "air")
+busrt <- shape_input("busroute_1.shp", "busrt")
+busstops <- shape_input("busstops.shp", "busstops")
+census <- shape_input("Tracts2010.shp", "census")
+mines <- shape_input("mines_1.shp", "mines")
+rail <- shape_input("railroad_1.shp", "rail")
+railyard <- shape_input("railroad_yardcentroid_1.shp", "railyard")
+roads <- shape_input("Roads_v20170728.shp", "roads")
+lu <- shape_input("nlcd2011_pimaclippolygon.shp", "lu")
+ptldcmnt <- shape_input("portlandcementplant.shp", "ptldcmnt")
+tepplant <- shape_input("tep_station.shp", "tepplant")
+stspeed <- shape_input("stspeed.shp", "stspeed")
+histdev <- shape_input("dev_hist.shp", "histdev")
+vehtype <- shape_input("Roads_VehicleType.shp", "vehtype")
 
 # Drop developments with no units listed
 histdev <- filter(histdev, UNITS>0)
@@ -119,7 +78,14 @@ mroads <- subset(roads, roads$VD15>5000)
 dmafb <- filter(air, NAME == "DAVIS-MONTHAN AIR FORCE BASE")
 tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
 
-# other ideas to think about, direction of slop, bus stops, 
+# Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
+roads <- roads[ , grepl( "VD" , names( roads ) ) ]
+
+#### Load and transform predictor rasters ####
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
+elev_rast <- raster("dem.tif")
+crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
+
 
 
 
