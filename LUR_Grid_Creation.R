@@ -2,7 +2,6 @@
 # Clear environment of temporary files
 rm(list=ls())
 
-<<<<<<< HEAD
 #### Set Year for Prediction Grid ####
 #Enter year of prediction grid
 Prediction_Year <- 2010
@@ -15,11 +14,6 @@ Prediction_Year <- '80'
 
 packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 
               'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'plotKML')
-=======
-#### Loading Packages ####
-
-packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse')
->>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -30,7 +24,6 @@ package.check <- lapply(packages, FUN = function(x) {
 
 #### Load and clean addresses ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
-<<<<<<< HEAD
 #results <- read.csv("TAPSdata.csv")
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
@@ -77,9 +70,9 @@ busrt <- st_read("busroute_1.shp", stringsAsFactors = F)
 
 # Selects the appropriate census file year to read
 census <- ifelse(Prediction_Year>1976 & Prediction_Year<1985, st_read("Tracts1980.shp", stringsAsFactors = F),
-                      ifelse(Prediction_Year>1986 & Prediction_Year<1995, st_read("Tracts1990.shp", stringsAsFactors = F),
-                             ifelse(Prediction_Year>1996 & Prediction_Year<2005, st_read("Tracts2000.shp", stringsAsFactors = F), 
-                                    st_read("Tracts2010.shp", stringsAsFactors = F))))
+                 ifelse(Prediction_Year>1986 & Prediction_Year<1995, st_read("Tracts1990.shp", stringsAsFactors = F),
+                        ifelse(Prediction_Year>1996 & Prediction_Year<2005, st_read("Tracts2000.shp", stringsAsFactors = F), 
+                               st_read("Tracts2010.shp", stringsAsFactors = F))))
 
 #census <- st_read("Census2010_1.shp", stringsAsFactors = F)
 #census <- st_read("Tracts1980.shp", stringsAsFactors = F)
@@ -223,23 +216,23 @@ intx_lu <- function(p,abuffdists,i){
                      ifelse(intx$GRIDCODE=='22', "hr",
                             ifelse(intx$GRIDCODE=='23', "cm",
                                    ifelse(intx$GRIDCODE=='85', "ug",
-                                         ifelse(intx$GRIDCODE=='11' |
-                                                  intx$GRIDCODE=='12' |
-                                                  intx$GRIDCODE=='31' |
-                                                  intx$GRIDCODE=='33' |
-                                                  intx$GRIDCODE=='41' |
-                                                  intx$GRIDCODE=='42' |
-                                                  intx$GRIDCODE=='43' |
-                                                  intx$GRIDCODE=='51' |
-                                                  intx$GRIDCODE=='61' |
-                                                  intx$GRIDCODE=='71' |
-                                                  intx$GRIDCODE=='91' |
-                                                  intx$GRIDCODE=='92', "nt",
-                                                      ifelse(intx$GRIDCODE=='61' |
-                                                               intx$GRIDCODE=='81' |
-                                                               intx$GRIDCODE=='82' |
-                                                               intx$GRIDCODE=='83' |
-                                                               intx$GRIDCODE=='84', "ag", "xx"))))))
+                                          ifelse(intx$GRIDCODE=='11' |
+                                                   intx$GRIDCODE=='12' |
+                                                   intx$GRIDCODE=='31' |
+                                                   intx$GRIDCODE=='33' |
+                                                   intx$GRIDCODE=='41' |
+                                                   intx$GRIDCODE=='42' |
+                                                   intx$GRIDCODE=='43' |
+                                                   intx$GRIDCODE=='51' |
+                                                   intx$GRIDCODE=='61' |
+                                                   intx$GRIDCODE=='71' |
+                                                   intx$GRIDCODE=='91' |
+                                                   intx$GRIDCODE=='92', "nt",
+                                                 ifelse(intx$GRIDCODE=='61' |
+                                                          intx$GRIDCODE=='81' |
+                                                          intx$GRIDCODE=='82' |
+                                                          intx$GRIDCODE=='83' |
+                                                          intx$GRIDCODE=='84', "ag", "xx"))))))
   
   intx <- intx %>%
     group_by(hhid_x, luc) %>%
@@ -819,8 +812,8 @@ write.csv(addrs, "addrs.csv", row.names = F)
 
 # Selects the appropriate LU predictor files year to read
 LU_Year <- ifelse(Prediction_Year<1997, 1992,
-                 ifelse(Prediction_Year>=1997 & Prediction_Year<2003, 2001,
-                        ifelse(Prediction_Year>=2003 & Prediction_Year<2008, 2006, 2011))) 
+                  ifelse(Prediction_Year>=1997 & Prediction_Year<2003, 2001,
+                         ifelse(Prediction_Year>=2003 & Prediction_Year<2008, 2006, 2011))) 
 
 filename_lu=list.files(path=paste0("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/", as.character(LU_Year)), full.names=TRUE)
 gridlist_lu = lapply(filename_lu, function(x){read.csv(file=x,header=T)})
@@ -875,7 +868,7 @@ addrs$pred_pm10 <- pred_pm10
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results")
 
 st_write(addrs, dsn = paste0("pred_grid_", Prediction_Year, ".shp"), layer = paste0("pred_grid", Prediction_Year, ".shp", 
-         driver = "ESRI Shapefile", delete_dsn = TRUE))
+                                                                                    driver = "ESRI Shapefile", delete_dsn = TRUE))
 
 
 
@@ -930,9 +923,9 @@ pal_pm25 <- colorNumeric("Reds", addrs.spdf$pred_pm25, n = 5)
 
 map %>%
   addCircleMarkers(stroke = F, fillOpacity = 0.50,
-             color = ~pal_pm25(pred_pm25),
-             label = ~hhid_x,
-             popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
+                   color = ~pal_pm25(pred_pm25),
+                   label = ~hhid_x,
+                   popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
   addLegend(pal = pal_pm25,
             values = ~pred_pm25,
             title = "PM2.5 Pred. Conc. (ug/m3)",
@@ -961,9 +954,9 @@ pal_pm25 <- colorNumeric("Reds", addrs.spdf$pred_pm25, n = 5)
 
 map %>%
   addMarkers(stroke = T, fillOpacity = 0.90,
-                   color = ~pal_pm25(pred_pm25),
-                   label = ~hhid_x,
-                   popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
+             color = ~pal_pm25(pred_pm25),
+             label = ~hhid_x,
+             popup = paste("PM2.5:", format(round(addrs.spdf$pred_pm25, 2), nsmall = 2), "<br>")) %>%
   addLegend(pal = pal_pm25,
             values = ~pred_pm25,
             title = "PM2.5 Pred. Conc. (ug/m3)",
@@ -1119,63 +1112,8 @@ setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/Years")
 
 write.csv(griddata, paste0("griddata_",Prediction_Year,".csv"), row.names = F)
 
-=======
-results <- read.csv("TAPSdata.csv")
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("Sites.shp", stringsAsFactors = F)
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
-
-addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-
-addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"))
 
 
-#### Create grid for prediction raster from LUR ####
-
-# Create a grid over Tucson, AZ metro area
-grid <- st_centroid(st_make_grid(addrs, 
-                                 cellsize = 10000, # Cell size of 1000 results in 25608 points; 10k cell size = 280 points
-                                 offset = st_bbox(addrs)[1:2], 
-                                 #             n = c(100, 100), 
-                                 crs = if (missing(addrs)) NA_crs_ else st_crs(addrs), 
-                                 what = "centers"))
-# Reproject grid
-grid <- grid  %>% st_set_crs(NA) %>% st_set_crs(2868)
-st_transform(grid, crs = 2868)
-
-
-# Create ID
-grid$hhid_x <- seq.int(nrow(grid))
-grid$hhid_x <- grid$hhid_x + 10000
-
-# Transform for mapping the grid
-grid.spdf <- as(grid, "Spatial")
-grid.spdf <- spTransform(grid.spdf, CRS("+proj=longlat +datum=WGS84"))
-
-# Change grid into dataframe
-grid.spdf$long <- grid.spdf@coords[,1]
-grid.spdf$lat <- grid.spdf@coords[,2]
-grid.df <- data.frame(grid.spdf)
-
-# Drop excess coordinate fields
-grid.df <- select(grid.df, hhid, long, lat)
-
-# Map grid
-map <- leaflet(data = grid.df) %>% addTiles() 
-
-map %>%
-  addCircleMarkers(stroke = F, radius=3)
-
-
-#predict air pollution levels
-pred_no2 <- predict(no2adj, griddata)
-pred_nox <- predict(noxadj, griddata)
-pred_pm25 <- predict(pm25adj, griddata)
-pred_pm10 <- predict(pm10adj, griddata)
->>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 
 
