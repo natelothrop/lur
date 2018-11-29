@@ -50,6 +50,7 @@ datano2 <- subset(data,!is.na(no2ppb))
 datapm25 <- subset(data,!is.na(pm25ugm3))
 datapm10 <- subset(data,!is.na(pm10ugm3))
 
+<<<<<<< HEAD
 #tables of year/season/pollutant
 
 data %>%
@@ -125,6 +126,8 @@ summarise(group_by(datapm25, styear, stssn),
 
 summarise(group_by(datapm10, styear, stssn),
           n=length(pm10ugm3), mean=mean(pm10ugm3), sd=sd(pm10ugm3))
+=======
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 #tables of year/season/pollutant
 summarise(group_by(datano2, styear, stssn),
@@ -329,6 +332,7 @@ no2freq_2obs <- data.frame(no2freq_2obs)
 
 no2freq_87_2obs <- filter(no2freq_2obs, styear==87)
 
+<<<<<<< HEAD
 #pm25 counts/home
 pm25freq_2obs <- data %>%  
   group_by(styear, stmon, hhid) %>%
@@ -347,6 +351,8 @@ pm10freq_2obs <- data.frame(pm10freq_2obs)
 
 pm10freq_87_2obs <- filter(pm10freq_2obs, styear==87)
 
+=======
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 #pull out those that have 2 obs periods in different seasons
 no2freq_totobs <- no2freq_87_2obs %>%  
   group_by(hhid) %>%
@@ -360,6 +366,7 @@ no2freq_totobs$styear <- NULL
 no2freq_totobs$freq <- NULL
 no2freq_totobs$stmon <- NULL
 
+<<<<<<< HEAD
 #pull out those with pm in two different seasons
 pm25freq_totobs <- pm25freq_87_2obs %>%  
   group_by(hhid) %>%
@@ -393,6 +400,68 @@ rdata %>% summarise(Mean = mean(no2adj), SD = sd(no2adj), Min = min(no2adj), Max
 datano2 %>% summarise(Mean = mean(no2ppb), SD = sd(no2ppb), Min = min(no2ppb), Max = max(no2ppb))
 
 
+=======
+#summary stats for temoprally corrected no2
+rdata %>% summarise(Mean = mean(no2adj), SD = sd(no2adj), Min = min(no2adj), Max = max(no2adj))
+
+#summary stats for whole year
+datano2 %>% summarise(Mean = mean(no2ppb), SD = sd(no2ppb), Min = min(no2ppb), Max = max(no2ppb))
+
+
+
+#freq <- count(data,"hhid")
+#freq <- merge(freq, data, c("hhid"))
+
+#data$freq <- factor(data$freq)
+
+# datano2 <- subset(data,!is.na(no2ppb))
+# 
+# datano2$styear <- factor(datano2$styear)
+# ggplot(data=datano2) + geom_bar(mapping = aes(x=styear))
+# 
+# describe(datano2$freq)
+# str(datano2)
+# 
+# ggplot(data=data)+geom_point(mapping=aes(y=no2ppb,alpha=count))
+# 
+# ggplot(data,aes(x=no2ppb,fill=styear))+geom_density(alpha=.3)
+# 
+# describe(data$no2ppb)
+
+# monitor89 <- subset(monitor,styear==89)
+# table(monitor89$stmon, monitor89$hhid)
+# table(monitor89$pm25ugm3, monitor89$hhid)
+# table(monitor89$no2ppb, monitor89$hhid)
+# data$pm25adj<-data$pm25ugm3 - data$pm25.avgdif
+# 
+# monitor89pm25 <- subset(monitor89, !is.na(pm25ugm3))
+# 
+# describe(monitor89pm25$pm25ugm3)
+# 
+# monitor89no2 <- subset(monitor89, !is.na(no2ppb))
+# describe(monitor89no2$no2ppb)
+# 
+# 
+# monitor90 <- subset(monitor,styear==90)
+# 
+# monitor90pm25 <- subset(monitor, !is.na(pm25ugm3))
+# 
+# describe(monitor90pm25$pm25ugm3)
+# 
+# ggplot(data=monitor89pm25, aes(x=stmon, fill=as.factor(hhid))) +
+#   geom_histogram(binwidth=1)
+# 
+# 
+# ggplot(data=monitor90pm25, aes(x=stmon, fill=as.factor(hhid))) +
+#   geom_histogram(binwidth=1)
+# 
+# str(data)
+# describe(data$no2ppb)
+# describe(data$pm25ugm3)
+# describe(data$pm10ugm3)
+
+#ggpairs(data=data, columns=c(data$no2ppb))
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 #### Calculate temporally corrected concentrations ####
 
@@ -1284,6 +1353,7 @@ rdata_multi$no2freq <- NULL
 #drop HHID 1354 and 1202 for 1987 as they have 2 measurements, but they're back to back weeks
 rdata_multi <- filter(rdata_multi, hhid!=1354 & hhid!=1202)
 
+<<<<<<< HEAD
 #create dataset of those with 2 obs in opposite seasons
 rdata_2obs <- merge(no2freq_totobs,rdata, by=c("hhid"))
 
@@ -1293,6 +1363,11 @@ rdata_2obs_pm25 <- merge(pm25freq_totobs,rdata, by=c("hhid"))
 #create dataset of those with 2 obs in opposite seasons
 rdata_2obs_pm10 <- merge(pm10freq_totobs,rdata, by=c("hhid"))
 
+=======
+
+#create dataset of those with 2 obs in opposite seasons
+rdata_2obs <- merge(no2freq_totobs,rdata, by=c("hhid"))
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 #summary stats for temoprally corrected no2
 rdata %>%
@@ -1319,6 +1394,7 @@ datano2 %>%
             Max = max(no2ppb),
             total = n())
 
+<<<<<<< HEAD
 #summary stats for all observations in 1987
 rdata_2obs %>%
   filter(styear==87) %>%
@@ -1330,6 +1406,8 @@ rdata_2obs %>%
             Max = max(no2_adj),
             total = n())
 
+=======
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 # #NOTU: run this script to log predicted air pollution values
 # rdata$no2_adj<-log(rdata$no2_adj)

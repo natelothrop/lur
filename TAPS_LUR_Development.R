@@ -1230,11 +1230,16 @@ par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
 
 
+<<<<<<< HEAD
 #### LUR analysis based on ESCAPE protocol - NOx ####
+=======
+#### LUR Analysis Based on ESCAPE Protocol - nox ####
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 noxadj <- (lm(nox_adj~
                 lu_hr_1000 +
                 distintvmine1 +
+<<<<<<< HEAD
                 # distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
                 elev +
                 # lu_hr_5000 +
@@ -1246,6 +1251,30 @@ noxadj <- (lm(nox_adj~
               ,data=subset(lurdata, !is.na(nox_adj)))) 
 summary(noxadj)
 
+=======
+                distintvrail1 +
+                elev +
+                #lu_hr_5000 +
+                #lu_nt_100 +
+                #mroads_tl_50 +
+                roads_rl_100 +
+                roads_rl_1000
+              ,data=lurdata))
+summary(noxadj)
+
+noxadj <- (lm(nox_adj~
+                lu_hr_1000 +
+                distintvmine1 +
+                distintvrail1 +
+                elev +
+                #lu_hr_5000 +
+                #lu_nt_100 +
+                #mroads_tl_50 +
+                roads_rl_100 +
+                roads_rl_1000
+              ,data=subset(lurdata, lurdata$hhid_x != "ZD62_A")))
+summary(noxadj)
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 #check for multicollinearity
 vif(noxadj) # problem?
@@ -1267,17 +1296,26 @@ train_control <- trainControl(method="LOOCV")
 model_loocv <- train(nox_adj~
                        lu_hr_1000 +
                        distintvmine1 +
+<<<<<<< HEAD
                        distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
                        elev +
                        roads_rl_500 +
                        trafmajor 
                      ,data=subset(lurdata, (!is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
+=======
+                       distintvrail1 +
+                       elev +
+                       roads_rl_100 +
+                       roads_rl_1000
+                     ,data=lurdata, trControl=train_control, method="lm")
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 # summarize results
 print(model_loocv)
 
 
 
 
+<<<<<<< HEAD
 # #Hold-out Validation
 # set.seed(1)
 # in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
@@ -1294,6 +1332,24 @@ print(model_loocv)
 #                      roads_rl_1000
 #                    , data = training, method = "lm")
 # print(model_hov)
+=======
+#Hold-out Validation
+set.seed(1)
+in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
+training <- lurdata[ in_train,]
+testing  <- lurdata[-in_train,]
+
+nrow(lurdata)
+nrow(training)
+nrow(testing)
+
+model_hov <- train(nox_adj~lu_hr_1000 +
+                     distintvrail1 +
+                     elev +
+                     roads_rl_1000
+                   , data = training, method = "lm")
+print(model_hov)
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 
 
@@ -1308,6 +1364,7 @@ nox_r<-merge(fitnox.r,lurdata, by=c("row.names"), all=T)
 names(nox_r)[2]<-"nox_r"
 nox_r <- dplyr::select(nox_r, hhid_x, nox_r)
 
+<<<<<<< HEAD
 par(mfrow = c(2, 2))
 plot(noxadj, labels.id = lurdata$hhid_x)
 
@@ -1316,6 +1373,17 @@ lm_noxadj <- noxadj
 
 
 #### LUR analysis based on ESCAPE protocol - PM2.5 ####
+=======
+keep<-c(2:3)
+nox_r<-nox_r[,keep]
+
+par(mfrow = c(2, 2))
+plot(noxadj, labels.id = lurdata$hhid_x)
+
+
+
+#### LUR Analysis Based on ESCAPE Protocol - PM2.5 ####
+>>>>>>> 0769d156750c7c0641dcdf112a26cc2af1fd9cd3
 
 pm25adj <- (lm(pm25_adj~
                  # elev +
