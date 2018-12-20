@@ -375,7 +375,7 @@ mapply(FUN = intx_vehicles, predictors, lbuffdists)
 predictors <- list("roads" = roads)
 mapply(FUN = intx_vehicles, predictors, lbuffdists)
 
-#### Line length and speed loading ####
+#### Road length and speed loading ####
 
 # line in area buffer distances (rail, bus route, road)
 lbuffdists <- c(25, 50, 100, 300, 500, 1000)
@@ -411,7 +411,7 @@ predictors <- list("stspeed" = stspeed)
 mapply(FUN = intx_stspeed, predictors, lbuffdists)
 
 
-#### Nearest line sources with vehicle loading (roads, major roads) ####
+#### Nearest line sources with vehicle loading (e.g. roads) ####
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 
@@ -515,7 +515,7 @@ spdlimnr$NRDistM <- NULL
 write.csv(spdlimnr, "spdlim_nr.csv", row.names = F)
 
 
-#### Nearest line sources without vehicle loading (bus routes, rail lines) ####
+#### Nearest line sources without vehicle loading (e.g. bus routes) ####
 
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
@@ -603,19 +603,12 @@ write.csv(histdevnr, "histdev_nr.csv", row.names = F)
 
 
 
-#### Nearest polygon (airports, active surface mines) and point (rail yard) sources ####
+#### Nearest polygon (e.g. active surface mines) and point (e.g. rail yard) sources ####
 
-
-# Nearest landfill
-predictors <- list("landfills" = landfills)
-mapply(FUN = nearest_poly_pt(), predictors)
-
-
-
-nearest_poly_pt <- function(p) {
+nearest_poly_pt <- function(p,i){
   addrs <- read_addrs()
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-  d <- st_distance(addrs, landfills)
+  d <- st_distance(addrs, p)
   min.d <- apply(d, 1, function(x) sort(x)[1])
   min.d_df <- data.frame(numeric(nrow(addrs)))
   min.d_df$dist <- min.d * 0.3048
@@ -632,252 +625,52 @@ nearest_poly_pt <- function(p) {
   
   predictor_nr$NRDistM<-NULL
   
-  names(predictor_nr$distintvpred1)<-paste0("distintv",names(predictors),"1")
-  names(predictor_nr$distintvpred2)<-paste0("distintv",names(predictors),"2")
+  names(predictor_nr)[2]<-paste0("distintv",names(predictors)[i],"1")
+  names(predictor_nr)[3]<-paste0("distintv",names(predictors)[i],"2")
   
-  write.csv(predictor_nr, paste0(names(predictors),".csv"),row.names = F)
+  write.csv(predictor_nr, paste0(names(predictors)[i],"_nr.csv"),row.names = F)
   
 }
 
+# Distance to nearest landfill
+predictors <- list("landfills" = landfills)
+mapply(FUN = nearest_poly_pt, predictors)
 
+# Distance to nearest airport runway
+predictors <- list("air" = air)
+mapply(FUN = nearest_poly_pt, predictors)
 
+# Distance to Davis-Monthan AFB
+predictors <- list("dmafb" = dmafb)
+mapply(FUN = nearest_poly_pt, predictors)
 
+# Distance to Tucson International Airport
+predictors <- list("tia" = tia)
+mapply(FUN = nearest_poly_pt, predictors)
 
+# Distance to nearest active surface mine
+predictors <- list("mines" = mines)
+mapply(FUN = nearest_poly_pt, predictors)
 
+# Distance to nearest active Sun Tran bus stop
+predictors <- list("busstops" = busstops)
+mapply(FUN = nearest_poly_pt, predictors)
 
-# Nearest landfill
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, landfills)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
+# Distance to nearest Sun Tran transit center
+predictors <- list("trnscenters" = trnscenters)
+mapply(FUN = nearest_poly_pt, predictors)
 
-addrsdf <- as.data.frame(addrs)
-landfillnr <- cbind(addrsdf, min.d_df)
-landfillnr <- subset(landfillnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(airnr)[1]<-"hhid"
-names(landfillnr)[2]<-"NRDistM"
-
-landfillnr$distintvlandfill1<-1/landfillnr$NRDistM
-landfillnr$distintvlandfill2<-(1/landfillnr$NRDistM)^2
-
-landfillnr$NRDistM<-NULL
-write.csv(landfillnr, "landfill_nr.csv", row.names = F)
-
-# Nearest airport runway
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, air)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-airnr <- cbind(addrsdf, min.d_df)
-airnr <- subset(airnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(airnr)[1]<-"hhid"
-names(airnr)[2]<-"NRDistM"
-
-airnr$distintvair1<-1/airnr$NRDistM
-airnr$distintvair2<-(1/airnr$NRDistM)^2
-
-airnr$NRDistM<-NULL
-write.csv(airnr, "air_nr.csv", row.names = F)
-
-
-# Nearest DMAFB
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, dmafb)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-dmafbnr <- cbind(addrsdf, min.d_df)
-dmafbnr <- subset(dmafbnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(airnr)[1]<-"hhid"
-names(dmafbnr)[2]<-"NRDistM"
-
-dmafbnr$distintvdmafb1<-1/dmafbnr$NRDistM
-dmafbnr$distintvdmafb2<-(1/dmafbnr$NRDistM)^2
-
-dmafbnr$NRDistM<-NULL
-write.csv(dmafbnr, "dmafb_nr.csv", row.names = F)
-
-
-# Nearest TIA (Tuc Intl Airport)
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, tia)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-tianr <- cbind(addrsdf, min.d_df)
-tianr <- subset(tianr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(airnr)[1]<-"hhid"
-names(tianr)[2]<-"NRDistM"
-
-tianr$distintvtia1<-1/tianr$NRDistM
-tianr$distintvtia2<-(1/tianr$NRDistM)^2
-
-tianr$NRDistM<-NULL
-write.csv(tianr, "tia_nr.csv", row.names = F)
-
-
-# Nearest active surface mine
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, mines)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-minenr <- cbind(addrsdf, min.d_df)
-minenr <- subset(minenr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(minenr)[1]<-"hhid"
-names(minenr)[2]<-"NRDistM"
-
-minenr$distintvmine1<-1/minenr$NRDistM
-minenr$distintvmine2<-(1/minenr$NRDistM)^2
-
-minenr$NRDistM<-NULL
-write.csv(minenr, "mine_nr.csv", row.names = F)
-
-# Nearest bus stop
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, busstops)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-busstopnr <- cbind(addrsdf, min.d_df)
-busstopnr <- subset(busstopnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(minenr)[1]<-"hhid"
-names(busstopnr)[2]<-"NRDistM"
-
-busstopnr$distintvbusstop1<-1/busstopnr$NRDistM
-busstopnr$distintvbusstop2<-(1/busstopnr$NRDistM)^2
-
-busstopnr$NRDistM<-NULL
-write.csv(busstopnr, "busstop_nr.csv", row.names = F)
-
-# Nearest transit center
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, trnscenters)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-trnscenternr <- cbind(addrsdf, min.d_df)
-trnscenternr <- subset(trnscenternr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(minenr)[1]<-"hhid"
-names(trnscenternr)[2]<-"NRDistM"
-
-trnscenternr$distintvtrnscenter1<-1/trnscenternr$NRDistM
-trnscenternr$distintvtrnscenter2<-(1/trnscenternr$NRDistM)^2
-
-trnscenternr$NRDistM<-NULL
-write.csv(trnscenternr, "trnscenter_nr.csv", row.names = F)
-
-# Nearest rail yard
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, railyard)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-railyardnr <- cbind(addrsdf, min.d_df)
-railyardnr <- subset(railyardnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(railyardnr)[1]<-"hhid"
-names(railyardnr)[2]<-"NRDistM"
-
-railyardnr$distintvrailyard1<-1/railyardnr$NRDistM
-railyardnr$distintvrailyard2<-(1/railyardnr$NRDistM)^2
-
-railyardnr$NRDistM<-NULL
-write.csv(railyardnr, "railyard_nr.csv", row.names = F)
-
-
-# Distance to Portland Cement Plant off I10, Marana
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, ptldcmnt)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-ptldcmntnr <- cbind(addrsdf, min.d_df)
-ptldcmntnr <- subset(ptldcmntnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(railyardnr)[1]<-"hhid"
-names(ptldcmntnr)[2]<-"NRDistM"
-
-ptldcmntnr$distintvptldcmnt1<-1/ptldcmntnr$NRDistM
-ptldcmntnr$distintvptldcmnt2<-(1/ptldcmntnr$NRDistM)^2
-
-ptldcmntnr$NRDistM<-NULL
-write.csv(ptldcmntnr, "ptldcmnt_nr.csv", row.names = F)
-
+# Distance to rail yard
+predictors <- list("railyard" = railyard)
+mapply(FUN = nearest_poly_pt, predictors)
 
 # Distance to TEP Generating Station off I10, Tucson
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-d <- st_distance(addrs, tepplant)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
+predictors <- list("tepplant" = tepplant)
+mapply(FUN = nearest_poly_pt, predictors)
 
-addrsdf <- as.data.frame(addrs)
-tepplantnr <- cbind(addrsdf, min.d_df)
-tepplantnr <- subset(tepplantnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(railyardnr)[1]<-"hhid"
-names(tepplantnr)[2]<-"NRDistM"
-
-tepplantnr$distintvtepplant1<-1/tepplantnr$NRDistM
-tepplantnr$distintvtepplant2<-(1/tepplantnr$NRDistM)^2
-
-tepplantnr$NRDistM<-NULL
-write.csv(tepplantnr, "tepplant_nr.csv", row.names = F)
-
-
-
-
-
-
-
-
-
+# # Distance to nearest cement plant
+# predictors <- list("cmntplant" = cmntplant)
+# mapply(FUN = nearest_poly_pt, predictors)
 
 #### CALINE 2010 Average Annual PM2.5 Concentration ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010")
@@ -893,7 +686,7 @@ setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 write.csv(caline, "caline.csv", row.names = F)
 
 
-#### Create coordinate point predictors ####
+#### Create coordinate XY predictors ####
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
 addrs <- st_read("Sites.shp", stringsAsFactors = F)
@@ -1198,7 +991,7 @@ map <- leaflet(data = addrs.df.pm) %>%
 mapshot(map, url = "pm10_taps_2015.html")
 
 
-#### LUR analysis based on ESCAPE protocol - NO2 ####
+#### Develop LUR - NO2 - Multiple Linear ####
 
 no2adj <- (lm(no2_adj~lu_hr_1000 +
                 # distintvmine1 +
@@ -1288,7 +1081,8 @@ par(mfrow = c(2, 2))
 plot(no2adj, labels.id = lurdata$hhid_x)
 
 
-#### LUR analysis based on ESCAPE protocol - NOx ####
+#### Develop LUR - NO2 - Mixed Effects #### 
+#### Develop LUR - NOx - Multiple Linear  ####
 
 noxadj <- (lm(nox_adj~
                 lu_hr_1000 +
@@ -1373,7 +1167,9 @@ plot(noxadj, labels.id = lurdata$hhid_x)
 lm_noxadj <- noxadj
 
 
-#### LUR analysis based on ESCAPE protocol - PM2.5 ####
+#### Develop LUR - NOx - Mixed Effects #### 
+
+#### Develop LUR - PM2.5 - Multiple Linear  ####
 
 pm25adj <- (lm(pm25_adj~
                  # elev +
@@ -1449,7 +1245,8 @@ lm_pm25adj <- pm25adj
 
 
 
-#### LUR analysis based on ESCAPE protocol - PM10 ####
+#### Develop LUR - PM2.5 - Mixed Effects #### 
+#### Develop LUR - PM10 - Multiple Linear  ####
 
 pm10adj <- (lm(pm10_adj~
                  lu_hr_500 +
@@ -1512,21 +1309,28 @@ plot(pm10adj, labels.id = lurdata$hhid_x)
 lm_pm10adj <- pm10adj
 
 
-#### Create residual output ####
+#### Develop LUR - PM10 - Mixed Effects #### 
+
+#### Multiple Linear vs Mixed Effects LURs (AICc) ####
+
+# Models will be compared using the Akaike Information Criterion-Corrected for few observations.
+
+AICc(no2adj)
+AICc(no2adj_me)
+
+AICc(noxadj)
+AICc(noxadj_me)
+
+AICc(pm25adj)
+AICc(pm25adj_me)
+
+AICc(pm10adj)
+AICc(pm10adj_me)
+
+
+#### Create Residual Files - Spatial Autocorr. Check (GeoDa) ####
 #Load in results and addresses again
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
-results <- read.csv("TAPSdata.csv")
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("Sites.shp", stringsAsFactors = F)
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
-
-addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-
-addrs <- left_join(addrs,results, by = c("HHID", "HHIDX"), all.x=T)
-
+addrs <- read_addrs()
 #merge model residuals
 resids <- left_join(addrs, no2_r, by=c("hhid_x"), all.x=T)
 resids <- left_join(resids, nox_r, by=c("hhid_x"), all.x=T)
@@ -1629,6 +1433,10 @@ map <- leaflet(data = resids.spdf.pm10) %>%
 
 mapshot(map, url = "pm10_taps_resids_2015.html")
 
+
+#### Refine LUR Models for Temporal Changes ####
+
+# Temporal Scalar
 
 #### Validate TAPS LURs on PCWS 1987 Measures ####
 
