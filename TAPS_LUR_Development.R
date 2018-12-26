@@ -6,7 +6,7 @@ rm(list=ls())
 #### Loading Packages ####
 
 packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'AICcmodavg',
-              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview')
+              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview', 'ggmap')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -45,8 +45,23 @@ addrs <- read_addrs()
 
 
 
-
 #### Load and prep predictor shapfiles ####
+
+# Geocode cement plant
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+cementplants <- read.csv("CementPlants.csv")
+
+cementplants$AddressFull <- paste(cementplants$Address, 
+                                  cementplants$City, 
+                                  cementplants$State,
+                                  cementplants$Zip, sep=', ')
+
+cmntplant <- mutate_geocode(cementplants, location=AddressFull, output="latlona" , source="dsk")
+
+cmntplant <- SpatialPointsDataFrame(coords = cmntplant[,c("lon","lat")], data = cmntplant,
+                                    proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+writeOGR(cmntplant, dsn = ".", layer = "CementPlants" ,driver = "ESRI Shapefile")
 
 shape_input <- function(shp_name) {
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
@@ -66,7 +81,7 @@ railyard <- shape_input("railroad_yardcentroid_1.shp")
 roads <- shape_input("Roads_v20170728.shp")
 lu <- shape_input("nlcd2011_pimaclippolygon.shp")
 landfills <- shape_input("lfil_ex.shp")
-ptldcmnt <- shape_input("portlandcementplant.shp")
+cmntplant <- shape_input("CementPlants.shp")
 tepplant <- shape_input("tep_station.shp")
 stspeed <- shape_input("stspeed.shp")
 histdev <- shape_input("dev_hist.shp")
@@ -93,8 +108,31 @@ tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
 # Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
 roads <- roads[ , grepl( "VD" , names( roads ) ) ]
 
+# Remove vehicle type fields that don't start with F or VD
+vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( vehtype ) )  ]
+
+# Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
+# vehtype$TD80 <- (vehtype$F80__T + vehtype$F80__Truck) * vehtype$VD80
+# vehtype$TD81 <- (vehtype$F81__T + vehtype$F81__Truck) * vehtype$VD81
+# vehtype$TD82 <- (vehtype$F82__T + vehtype$F82__Truck) * vehtype$VD82
+# vehtype$TD83 <- (vehtype$F83__T + vehtype$F83__Truck) * vehtype$VD83
+# vehtype$TD84 <- (vehtype$F84__T + vehtype$F84__Truck) * vehtype$VD84
+# vehtype$TD85 <- (vehtype$F85__T + vehtype$F85__Truck) * vehtype$VD85
+# vehtype$TD86 <- (vehtype$F86__T + vehtype$F86__Truck) * vehtype$VD86
+# vehtype$TD87 <- (vehtype$F87__T + vehtype$F87__Truck) * vehtype$VD87
+# vehtype$TD88 <- (vehtype$F88__T + vehtype$F88__Truck) * vehtype$VD88
+# vehtype$TD89 <- (vehtype$F89__T) * vehtype$VD89
+# vehtype$TD90 <- (vehtype$F90__T) * vehtype$VD90
+# vehtype$TD91 <- (vehtype$F91__T) * vehtype$VD91
+# vehtype$TD92 <- (vehtype$F92__T) * vehtype$VD92
+
+vehtype$TD15 <- (vehtype$F10__S + vehtype$F10__C)/100 * vehtype$VD15
+
+
 # Drop inactive landfills or other wildcat dump sites
 landfills <- subset(landfills, STATUS == "OPEN" & TYPE == "LANDFILL")
+
+ 
 
 #### Load and transform predictor rasters ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
@@ -375,6 +413,40 @@ mapply(FUN = intx_vehicles, predictors, lbuffdists)
 predictors <- list("roads" = roads)
 mapply(FUN = intx_vehicles, predictors, lbuffdists)
 
+# line in area buffer distances (rail, bus route, road)
+lbuffdists <- c(25, 50, 100, 300, 500, 1000)
+
+intx_heavyvehicles <- function(p,lbuffdists,i){
+  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
+  intx <- st_cast(intx, "MULTILINESTRING")
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      mutate(roadlength = (st_length(intx) * 0.3048)) %>% #NOTE dividing to convert to length from ft to meters
+      mutate(trafload = TD15 * (st_length(intx) * 0.3048)) 
+    
+    rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
+    rl$hhid_x <- row.names(rl)
+    names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
+    rownames(rl) <- c()
+    write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
+    
+    
+    tl <- data.frame(rowsum(x = intx$trafload, group = intx$hhid_x))
+    tl$hhid_x <- row.names(tl)
+    names(tl)[1] <- paste0(names(predictors)[i],"_tl_",as.character(lbuffdists))
+    rownames(tl) <- c()
+    write.csv(tl, paste0(names(predictors)[i],"_tl_",as.character(lbuffdists),".csv"),row.names = F)
+    
+  } else {
+    print(paste0(names(predictors)[i],"_rltl_",as.character(lbuffdists)," had no intersections"))
+  }
+}
+
+predictors <- list("vehtype" = vehtype)
+mapply(FUN = intx_heavyvehicles, predictors, lbuffdists)
+
+
 #### Road length and speed loading ####
 
 # line in area buffer distances (rail, bus route, road)
@@ -414,6 +486,37 @@ mapply(FUN = intx_stspeed, predictors, lbuffdists)
 #### Nearest line sources with vehicle loading (e.g. roads) ####
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+
+#Nearest road and TD (truck density)
+d <- st_distance(addrs, vehtype)
+min.d <- apply(d, 1, function(x) sort(x)[1])
+min.d.td <- apply(d, 1, function(x) vehtype$TD15 [order(x)][1])
+min.d_df <- data.frame(numeric(nrow(addrs)))
+min.d_df$dist <- min.d * 0.3048
+min.d_df$td <- min.d.td
+min.d_df[1] <- NULL
+
+addrsdf <- as.data.frame(addrs)
+vehtypenr <- cbind(addrsdf, min.d_df)
+vehtypenr <- subset(vehtypenr, select = c(hhid_x, dist, td)) #pull out hhid_x, distance to, and vd per day
+
+#rename according to ESCAPE nomenclature
+#names(roadnr)[1]<-"hhid"
+names(vehtypenr)[2]<-"NRDistM"
+names(vehtypenr)[3]<-"heavytrafnear"
+
+
+#calculate predictors based on "vd" and "dist" fields
+vehtypenr$heavydistinvnear1<-1/vehtypenr$NRDistM
+vehtypenr$heavydistinvnear2<-(1/vehtypenr$NRDistM)^2
+vehtypenr$heavyintinvnear1<-vehtypenr$heavytrafnear * (1/vehtypenr$NRDistM)
+vehtypenr$heavyintinvnear2<-vehtypenr$heavytrafnear * ((1/vehtypenr$NRDistM)^2)
+
+
+#drop the distance variable as this isn't a predictor
+vehtypenr$NRDistM <- NULL
+write.csv(vehtypenr, "vehtype_nr.csv", row.names = F)
+
 
 #Nearest road and VD
 d <- st_distance(addrs, roads)
@@ -669,8 +772,8 @@ predictors <- list("tepplant" = tepplant)
 mapply(FUN = nearest_poly_pt, predictors)
 
 # # Distance to nearest cement plant
-# predictors <- list("cmntplant" = cmntplant)
-# mapply(FUN = nearest_poly_pt, predictors)
+predictors <- list("cmntplant" = cmntplant)
+mapply(FUN = nearest_poly_pt, predictors)
 
 #### CALINE 2010 Average Annual PM2.5 Concentration ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010")
