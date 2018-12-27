@@ -1,12 +1,14 @@
 
-library(Hmisc)
-library(plyr)
-library(corrplot)
-library(ggplot2)
-library(grid)
-library(gridExtra)
-library(tidyverse)
+#### Load packages as needed ####
 
+packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2')
+
+package.check <- lapply(packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
 
 
 #### Import Pima DEQ Background Data ####
@@ -332,6 +334,9 @@ samp.all.data<-Reduce(function(x,y) merge(x,y, all=TRUE, by = c("HHID_X", "Sampl
                 list(no2.samp.all,nox.samp.all,
                      pm25.samp.all,pm10.samp.all))
 
+names(samp.all.data)[1] <- "hhid_x"
+  
+  
 # Check if no2 is larger than nox for each sample period and home, and correct, as there is no issue found in lab processing
 ifelse(samp.all.data$nox<samp.all.data$no2,
        paste("Check NO2/NOx ratios! NO2>NOx for ",samp.all.data$HHID_X, " in Sample Period ", samp.all.data$SamplePeriod, ". This will be corrected so that NOx = NO2."),

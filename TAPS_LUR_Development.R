@@ -6,7 +6,8 @@ rm(list=ls())
 #### Loading Packages ####
 
 packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'AICcmodavg',
-              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview', 'ggmap')
+              'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview', 
+              'ggmap', 'lme4')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -859,9 +860,9 @@ lurdata[, 1:12][lurdata[, 1:12]==0] <- NA
 
 
 
-#### Data cleaning and LUR testing ####
+#### Data Cleaning and LUR testing - Multiple Linear ####
 
-#drop the "A" addresses which have too few sampling periods (>2) to be used in LUR
+#drop the "A" addresses which have too few sampling periods (<2) to be used in LUR
 lurdata <- subset(lurdata, lurdata$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
 lurdata <- subset(lurdata, lurdata$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
 lurdata <- subset(lurdata, lurdata$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
@@ -892,6 +893,46 @@ sink()#stops diverting output
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm10adj.txt")#saves output to text file
 lapply( lurdata[,-1], function(x) summary(lm(lurdata$pm10_adj ~ x)) )
 sink()#stops diverting output
+
+
+
+#### Data Cleaning and LUR testing - Mixed Effects ####
+
+# #drop the "A" addresses which have too few sampling periods (<2) to be used in LUR
+# lurdata <- subset(lurdata, lurdata$hhid_x != "QC84_A") #dropped as this was only measured once without GPS coords
+# lurdata <- subset(lurdata, lurdata$hhid_x != "SM47_A") #dropped as this was only measured once without GPS coords
+# lurdata <- subset(lurdata, lurdata$hhid_x != "WF34_A") #dropped as this is almost <25m to intersection(NE corner Tucson Blvd, Arroy Chico), thus excluding it
+# lurdata <- subset(lurdata, lurdata$hhid_x != "HV75_A") #dropped as this has no measures completed, thus excluding it
+
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/Results")
+results.me <- read.csv("TAPSData_AllObs.csv")
+
+lurdata.me <- merge(results.me, lurdata, by=c("hhid_x"))
+
+lurdata.me <-  lurdata.me[ ,!grepl("adj$", names(lurdata.me))]
+
+
+#univariate regressions to find starting variable for NO2
+sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_no2.txt")#saves output to text file
+lapply( lurdata.me[,-1], function(x) summary(lmer(no2 ~ x + (1 | hhid_x), data=lurdata.me)) )
+sink()#stops diverting output
+
+#univariate regressions to find starting variable for NOx
+sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_nox.txt")#saves output to text file
+lapply( lurdata.me[,-1], function(x) summary(lmer(nox ~ x + (1 | hhid_x), data=lurdata.me)) )
+sink()#stops diverting output
+
+#univariate regressions to find starting variable for PM2.5
+sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm25.txt")#saves output to text file
+lapply( lurdata.me[,-1], function(x) summary(lmer(pm25 ~ x + (1 | hhid_x), data=lurdata.me)) )
+sink()#stops diverting output
+
+#univariate regressions to find starting variable for PM10
+sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm10.txt")#saves output to text file
+lapply( lurdata.me[,-1], function(x) summary(lmer(pm10 ~ x + (1 | hhid_x), data=lurdata.me)) )
+sink()#stops diverting output
+
+
 
 
 
@@ -1185,6 +1226,15 @@ plot(no2adj, labels.id = lurdata$hhid_x)
 
 
 #### Develop LUR - NO2 - Mixed Effects #### 
+
+no2 <- (lmer(no2~lu_hr_1000 +
+                distintvrail1 +
+                elev +
+                roads_rl_1000 +
+               factor(SamplePeriod) +
+               (1 | hhid_x)
+              ,data=lurdata.me))
+
 #### Develop LUR - NOx - Multiple Linear  ####
 
 noxadj <- (lm(nox_adj~
@@ -1279,10 +1329,9 @@ pm25adj <- (lm(pm25_adj~
                  busrt_l_300 +
                  # distintvair1 + #Removed to reduce influence of CB67A
                  Xcoord
-                 # hd_500
+               # hd_500
                ,data=filter(lurdata,!is.na(pm25_adj))))
 summary(pm25adj)
-
 
 #check for multicollinearity
 vif(pm25adj) # problem?
@@ -1418,8 +1467,8 @@ lm_pm10adj <- pm10adj
 
 # Models will be compared using the Akaike Information Criterion-Corrected for few observations.
 
-AICc(no2adj)
-AICc(no2adj_me)
+no2adj_aicc <- AICc(no2adj)
+no2_aicc <- AICc(no2)
 
 AICc(noxadj)
 AICc(noxadj_me)
