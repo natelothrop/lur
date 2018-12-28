@@ -7,7 +7,7 @@ rm(list=ls())
 
 packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'AICcmodavg',
               'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview', 
-              'ggmap', 'lme4')
+              'ggmap', 'lme4', 'lmerTest', 'lctools')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -914,22 +914,22 @@ lurdata.me <-  lurdata.me[ ,!grepl("adj$", names(lurdata.me))]
 
 #univariate regressions to find starting variable for NO2
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_no2.txt")#saves output to text file
-lapply( lurdata.me[,-1], function(x) summary(lmer(no2 ~ x + (1 | hhid_x), data=lurdata.me)) )
+lapply( lurdata.me[,-1], function(x) AICc(lmer(no2 ~ x + (1 | hhid_x), data=lurdata.me)))
 sink()#stops diverting output
 
 #univariate regressions to find starting variable for NOx
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_nox.txt")#saves output to text file
-lapply( lurdata.me[,-1], function(x) summary(lmer(nox ~ x + (1 | hhid_x), data=lurdata.me)) )
+lapply( lurdata.me[,-1], function(x) AICc(lmer(nox ~ x + (1 | hhid_x), data=lurdata.me)) )
 sink()#stops diverting output
 
 #univariate regressions to find starting variable for PM2.5
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm25.txt")#saves output to text file
-lapply( lurdata.me[,-1], function(x) summary(lmer(pm25 ~ x + (1 | hhid_x), data=lurdata.me)) )
+lapply( lurdata.me[,-1], function(x) AICc(lmer(pm25 ~ x + (1 | hhid_x), data=lurdata.me)) )
 sink()#stops diverting output
 
 #univariate regressions to find starting variable for PM10
 sink("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Results/taps_lur_pm10.txt")#saves output to text file
-lapply( lurdata.me[,-1], function(x) summary(lmer(pm10 ~ x + (1 | hhid_x), data=lurdata.me)) )
+lapply( lurdata.me[,-1], function(x) AICc(lmer(pm10 ~ x + (1 | hhid_x), data=lurdata.me)) )
 sink()#stops diverting output
 
 
@@ -1227,30 +1227,30 @@ plot(no2adj, labels.id = lurdata$hhid_x)
 
 #### Develop LUR - NO2 - Mixed Effects #### 
 
-no2 <- (lmer(no2~lu_hr_1000 +
-                distintvrail1 +
-                elev +
-                roads_rl_1000 +
-               factor(SamplePeriod) +
+no2 <- (lmer(no2~distintvcmntplant2 +
+               distintvbusrt1 +
+               distintvmajor1 +
+               distintvrail1 +
+               lu_nt_1000 +
                (1 | hhid_x)
               ,data=lurdata.me))
+
+AICc(no2)
+summary(no2)
 
 #### Develop LUR - NOx - Multiple Linear  ####
 
 noxadj <- (lm(nox_adj~
-                lu_hr_1000 +
+                busstops_5000 +
                 distintvmine1 +
-                # distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
+                # distintvrail1 + #NOTE - removed due to high influence via ZD62_A
                 elev +
-                # lu_hr_5000 +
-                # lu_nt_100 +
-                # mroads_tl_50 + 
-                roads_rl_500 +
-                trafmajor 
-              # hdnear
+                lu_hr_1000 +
+                lu_nt_100 +
+                # roads_rl_100 + #NOTE - removed due to pvalue > 0.10
+                roads_rl_50
               ,data=subset(lurdata, !is.na(nox_adj)))) 
 summary(noxadj)
-
 
 #check for multicollinearity
 vif(noxadj) # problem?
@@ -1270,37 +1270,15 @@ plot(noxadj, which=4, cook.levels=cutoff, labels.id = lurdata$hhid_x)
 train_control <- trainControl(method="LOOCV")
 # train the model
 model_loocv <- train(nox_adj~
-                       lu_hr_1000 +
+                       busstops_5000 +
                        distintvmine1 +
-                       distintvrail1 + #NOTE - removed due to reduced significance after ZD62 removal
                        elev +
-                       roads_rl_500 +
-                       trafmajor 
+                       lu_hr_1000 +
+                       lu_nt_100 +
+                       roads_rl_50
                      ,data=subset(lurdata, (!is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
 # summarize results
 print(model_loocv)
-
-
-
-
-# #Hold-out Validation
-# set.seed(1)
-# in_train <- createDataPartition(lurdata$nox_adj, p = 2/3, list = FALSE)
-# training <- lurdata[ in_train,]
-# testing  <- lurdata[-in_train,]
-# 
-# nrow(lurdata)
-# nrow(training)
-# nrow(testing)
-# 
-# model_hov <- train(nox_adj~lu_hr_1000 +
-#                      distintvrail1 +
-#                      elev +
-#                      roads_rl_1000
-#                    , data = training, method = "lm")
-# print(model_hov)
-
-
 
 
 fitnox<-summary(noxadj) #final model
@@ -1321,6 +1299,23 @@ lm_noxadj <- noxadj
 
 
 #### Develop LUR - NOx - Mixed Effects #### 
+
+nox <- (lmer(nox~
+                busstops_5000 +
+                distintvmine1 +
+                # distintvrail1 + #NOTE - removed due to high influence via ZD62_A
+                elev +
+                # lu_hr_1000 +
+                # lu_nt_100 +
+                # roads_rl_100 + #NOTE - removed due to pvalue > 0.10
+                roads_rl_50 +
+               (1 | hhid_x) +
+               factor(SamplePeriod)
+              ,data=subset(lurdata.me, !is.na(nox))))
+
+step(nox)
+
+AICc(nox)
 
 #### Develop LUR - PM2.5 - Multiple Linear  ####
 
@@ -1398,6 +1393,8 @@ lm_pm25adj <- pm25adj
 
 
 #### Develop LUR - PM2.5 - Mixed Effects #### 
+
+
 #### Develop LUR - PM10 - Multiple Linear  ####
 
 pm10adj <- (lm(pm10_adj~
@@ -1467,20 +1464,22 @@ lm_pm10adj <- pm10adj
 
 # Models will be compared using the Akaike Information Criterion-Corrected for few observations.
 
-no2adj_aicc <- AICc(no2adj)
-no2_aicc <- AICc(no2)
+AICc(no2adj)
+AICc(no2)
 
 AICc(noxadj)
-AICc(noxadj_me)
+AICc(nox)
 
 AICc(pm25adj)
-AICc(pm25adj_me)
+AICc(pm25)
 
 AICc(pm10adj)
-AICc(pm10adj_me)
+AICc(pm10)
 
 
-#### Create Residual Files - Spatial Autocorr. Check (GeoDa) ####
+#### Check for Spatial Autocorrelation ####
+# Using the 'lctools' package: https://cran.r-project.org/web/packages/lctools/lctools.pdf
+
 #Load in results and addresses again
 addrs <- read_addrs()
 #merge model residuals
@@ -1585,7 +1584,44 @@ map <- leaflet(data = resids.spdf.pm10) %>%
 
 mapshot(map, url = "pm10_taps_resids_2015.html")
 
+# NO2 global Moran's I with 5 nearest neighbors
+coords <- cbind(resids.spdf.nox@data$long,resids.spdf.nox@data$lat)
+m.I <- moransI(coords,5,resids.spdf.nox@data$no2_r)
+t(as.matrix(m.I[2:7]))
 
+# NO2 local Moran's I with 5 nearest neighbors
+l.m.I <- l.moransI(coords,5,resids.spdf.nox@data$no2_r, scatter.plot = T)
+l.m.I
+
+
+# NOx global Moran's I with 5 nearest neighbors
+coords <- cbind(resids.spdf.nox@data$long,resids.spdf.nox@data$lat)
+m.I <- moransI(coords,5,resids.spdf.nox@data$nox_r)
+t(as.matrix(m.I[2:7]))
+
+# NOx local Moran's I with 5 nearest neighbors
+l.m.I <- l.moransI(coords,5,resids.spdf.nox@data$nox_r, scatter.plot = T)
+l.m.I
+
+
+# PM2.5 global Moran's I with 3 nearest neighbors
+coords <- cbind(resids.spdf.pm25@data$long,resids.spdf.pm25@data$lat)
+m.I <- moransI(coords,3,resids.spdf.pm25@data$pm25_r)
+t(as.matrix(m.I[2:7]))
+
+# PM2.5 local Moran's I with 3 nearest neighbors
+l.m.I <- l.moransI(coords,3,resids.spdf.pm25@data$pm25_r, scatter.plot = T)
+l.m.I
+
+
+# PM10 global Moran's I with 3 nearest neighbors
+coords <- cbind(resids.spdf.pm10@data$long,resids.spdf.pm10@data$lat)
+m.I <- moransI(coords,3,resids.spdf.pm10@data$pm10_r)
+t(as.matrix(m.I[2:7]))
+
+# PM2.5 local Moran's I with 3 nearest neighbors
+l.m.I <- l.moransI(coords,3,resids.spdf.pm10@data$pm10_r, scatter.plot = T)
+l.m.I
 #### Refine LUR Models for Temporal Changes ####
 
 # Temporal Scalar
