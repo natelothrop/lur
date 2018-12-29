@@ -1622,9 +1622,75 @@ t(as.matrix(m.I[2:7]))
 # PM2.5 local Moran's I with 3 nearest neighbors
 l.m.I <- l.moransI(coords,3,resids.spdf.pm10@data$pm10_r, scatter.plot = T)
 l.m.I
-#### Refine LUR Models for Temporal Changes ####
+#### Refine LUR Models for Annual Temporal Changes ####
 
-# Temporal Scalar
+# Read in NO2, PM2.5, and PM10 background values from the longest, constantly running PDEQ monitors for NAAQS compliance
+# Downloaded in 20 year increments for all available data from 1980 - 2017 from https://aqs.epa.gov/api on 2018/12/28 with user: lothrop@email.arizona.edu and password 'rubycat56'
+# NO2, PM2.5, and PM10 monitor sites that running longest aren't same (NO2: Alvernon/Craycroft; PM2.5: Saguaro Park; PM10: Orange Grove)
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/Data/PDEQHistoric")
+
+no2_1980_2000 <- read.csv("NO2_1980_2000.txt", header = T)
+no2_2000_2017 <- read.csv("NO2_2000_2017.txt", header = T)
+no2_ref <- bind_rows(no2_1980_2000, no2_2000_2017)
+
+pm25_1980_2000 <- read.csv("PM25_1980_2000.txt", header = T)
+pm25_2000_2017 <- read.csv("PM25_2000_2017.txt", header = T)
+pm25_ref <- bind_rows(pm25_1980_2000, pm25_2000_2017)
+
+pm10_1980_2000 <- read.csv("PM10_1980_2000.txt", header = T)
+pm10_2000_2017 <- read.csv("PM10_2000_2017.txt", header = T)
+pm10_ref <- bind_rows(pm10_1980_2000, pm10_2000_2017)
+
+# Create annual averages for each pollutant type
+no2_ref <- no2_ref %>%
+  dplyr::group_by(Year.GMT) %>%
+  dplyr::summarise(no2_ref_avg = mean(Sample.Measurement)) %>%
+  dplyr::mutate(year = Year.GMT) %>%
+  dplyr::filter(!is.na(year) & year<2017) %>%
+  dplyr::select(year, no2_ref_avg)
+
+pm25_ref <- pm25_ref %>%
+  dplyr::group_by(Year.GMT) %>%
+  dplyr::summarise(pm25_ref_avg = mean(Sample.Measurement)) %>%
+  dplyr::mutate(year = Year.GMT) %>%
+  dplyr::filter(!is.na(year) & year<2017) %>%
+  dplyr::select(year, pm25_ref_avg)
+  
+pm10_ref <- pm10_ref %>%
+  dplyr::group_by(Year.GMT) %>%
+  dplyr::summarise(pm10_ref_avg = mean(Sample.Measurement)) %>%
+  dplyr::mutate(year = Year.GMT) %>%
+  dplyr::filter(!is.na(year) & year<2017) %>%
+  dplyr::select(year, pm10_ref_avg)
+  
+# Method 1 - scale modeled air pollution exposure values by changes over time
+# e.g., for each data point in [year of external valid. data]: 
+# (ref value in [year of external valid. data] - ref value in [year of model devel]) + value in [year of external valid. data
+
+#NO2
+#NOTE - lu_hr_1000 DOES NOT EXIST in NLCD 1992 data, so we add it manually
+
+# Create temporally scaled result
+
+rdata$no2adj_scaled <- rdata$no2adj + (no2_ref$)
+  
+  
+rdata$lu_hr_1000 <- 0
+
+rdata$lu_hr_1000 <- rdata$cm_1000
+
+rdata$roads_rl_1000 <- rdata$rl_1000
+
+rdata$no2adj_taps_pred <- predict(no2adj, newdata=rdata)
+
+
+# Method 2 - use year-specific predictor data
+
+# Method 3 - combination of Method 1 + 2
+
+# Method 4 - account for changes in the predictor-air pollution level relationships by calibrating predictor coefficients to the prediction-year outcome data 
+# e.g., take TAPS model, and refit same model predictors using PCWS data
+
 
 #### Validate TAPS LURs on PCWS 1987 Measures ####
 
