@@ -1622,11 +1622,16 @@ t(as.matrix(m.I[2:7]))
 # PM2.5 local Moran's I with 3 nearest neighbors
 l.m.I <- l.moransI(coords,3,resids.spdf.pm10@data$pm10_r, scatter.plot = T)
 l.m.I
-#### Refine LUR Models for Annual Temporal Changes ####
+#### Refine LUR Models - Method 1 - Temp. Scaling ####
+# Method 1 - scale modeled air pollution exposure values by changes over time
+# e.g., for each data point in [year of external valid. data]: 
+# (ref value in [year of external valid. data] - ref value in [year of model devel]) + value in [year of external valid. data
 
 # Read in NO2, PM2.5, and PM10 background values from the longest, constantly running PDEQ monitors for NAAQS compliance
 # Downloaded in 20 year increments for all available data from 1980 - 2017 from https://aqs.epa.gov/api on 2018/12/28 with user: lothrop@email.arizona.edu and password 'rubycat56'
 # NO2, PM2.5, and PM10 monitor sites that running longest aren't same (NO2: Alvernon/Craycroft; PM2.5: Saguaro Park; PM10: Orange Grove)
+# Note that PM2.5 monitoring is taken offline temporarily at Saguaro Park 1994-1999
+
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/Data/PDEQHistoric")
 
 no2_1980_2000 <- read.csv("NO2_1980_2000.txt", header = T)
@@ -1662,26 +1667,91 @@ pm10_ref <- pm10_ref %>%
   dplyr::mutate(year = Year.GMT) %>%
   dplyr::filter(!is.na(year) & year<2017) %>%
   dplyr::select(year, pm10_ref_avg)
+
+ref_levels <- full_join(no2_ref, pm25_ref, by=c("year"))
+ref_levels <- full_join(ref_levels, pm10_ref, by=c("year"))
+
+# Check correlations between pollutant types
+summary(lm(no2_ref_avg ~ pm25_ref_avg, data=ref_levels))
+summary(lm(no2_ref_avg ~ pm10_ref_avg, data=ref_levels))
+summary(lm(pm25_ref_avg ~ pm10_ref_avg, data=ref_levels))
+
+# Limited correlation, so will impute average of missings between 2 closest known years
+
+# For non-measured PM2.5 and PM10 for 1980s, use earliest available value, 1985 for PM10
+
+pm25_93_00_avg <- (as.numeric(ref_levels[which(ref_levels$year==1993),3])+as.numeric(ref_levels[which(ref_levels$year==2000),3]))/2
+
+ref_levels$pm25_ref_avg <- ifelse(ref_levels$year<1988, 
+                                  as.numeric(ref_levels[which(ref_levels$year==1988),3]),
+                                  ifelse(ref_levels$year>1988 & is.na(ref_levels$pm25_ref_avg),
+                                         pm25_93_00_avg, 
+                                         ref_levels$pm25_ref_avg))
+
+ref_levels$pm10_ref_avg <- ifelse(is.na(ref_levels$pm10_ref_avg), 
+                                  as.numeric(ref_levels[which(ref_levels$year==1985),4]),
+                                  ref_levels$pm10_ref_avg)
+
   
-# Method 1 - scale modeled air pollution exposure values by changes over time
+# Method 1 - scale modeled air pollution exposure values by changes over time done by difference and ratio
 # e.g., for each data point in [year of external valid. data]: 
 # (ref value in [year of external valid. data] - ref value in [year of model devel]) + value in [year of external valid. data
+
+# Create temporal scalar to be applied to testing dataset outcome
+year_mod_devel <- 2015
+
+year_ext_val_data <- 1987
+
+# no2_ref_year_dif <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),2]) - as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),2])
+# pm25_ref_year_dif <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),3]) - as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),3])
+# pm10_ref_year_dif <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),4]) - as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),4])
+
+no2_ref_year_ratio <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),2]) / as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),2])
+pm25_ref_year_ratio <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),3]) / as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),3])
+pm10_ref_year_ratio  <- as.numeric(ref_levels[which(ref_levels$year==year_ext_val_data),4]) / as.numeric(ref_levels[which(ref_levels$year==year_mod_devel),4])
+
+
+# Import PCWS data for 1987
+pcws_mthd1 <- rdata_2obs
+
+# Calibrate the Palmes NO2 measures to Ogawa measures using Caesaroni et al. 2012 equation:
+pcws_mthd1$no2_adj <- (0.68 * pcws_mthd1$no2_adj) + 13.53
+
+# Temporal trend correction with absolute difference and ratio change
+# pcws_mthd1$no2_adj_scl_dif <- pcws_mthd1$no2_adj + no2_ref_year_dif
+
+pcws_mthd1$no2_adj_scl_ratio <- pcws_mthd1$no2_adj * no2_ref_year_ratio
+
+# plot(pcws_mthd1$no2_adj_scl_dif, pcws_mthd1$no2_adj_scl_ratio)
+
+hist(pcws_mthd1$no2_adj)
+# hist(pcws_mthd1$no2_adj_scl_dif)
+hist(pcws_mthd1$no2_adj_scl_ratio)
+
+
+
+
+
+
+
+
 
 #NO2
 #NOTE - lu_hr_1000 DOES NOT EXIST in NLCD 1992 data, so we add it manually
 
-# Create temporally scaled result
+rdata_2obs$lu_hr_1000 <- 0
 
-rdata$no2adj_scaled <- rdata$no2adj + (no2_ref$)
-  
-  
-rdata$lu_hr_1000 <- 0
+rdata_2obs$lu_hr_1000 <- rdata_2obs$cm_1000
 
-rdata$lu_hr_1000 <- rdata$cm_1000
+rdata_2obs$roads_rl_1000 <- rdata_2obs$rl_1000
 
-rdata$roads_rl_1000 <- rdata$rl_1000
+rdata_2obs$no2adj_taps_pred <- predict(no2adj, newdata=rdata_2obs)
 
-rdata$no2adj_taps_pred <- predict(no2adj, newdata=rdata)
+# Calculate R^2
+print(postResample(rdata_2obs$no2adj_taps_pred,rdata_2obs$no2_adj))
+
+# Residuals
+rdata_2obs$no2adj_taps_resids <- rdata_2obs$no2_adj - rdata_2obs$no2adj_taps_pred
 
 
 # Method 2 - use year-specific predictor data
