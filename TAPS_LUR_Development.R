@@ -1,4 +1,7 @@
-#This script is to create spatial analysis variables for a point set using ESCAPE methods found in their study manuals
+
+# Aim of script is to create spatial analysis variables for TAPS using ESCAPE methods in R
+# Be aware polygon-based analyses will take <1 hour to run
+# Coding is done for Mac-based paths
 
 # Clear environment of temporary files
 rm(list=ls())
@@ -783,8 +786,8 @@ caline <- read.csv("ExposureForAllIndividuals.csv")
 caline$hhid_x <- caline$CRSID
 
 caline <- caline %>%
-  group_by(hhid_x) %>%
-  summarize(cal3_pm25 = mean(Total))
+  dplyr::group_by(hhid_x) %>%
+  dplyr::summarise(cal3_pm25 = mean(Total))
 
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
 write.csv(caline, "caline.csv", row.names = F)
@@ -1325,6 +1328,7 @@ pm25adj <- (lm(pm25_adj~
                  # distintvair1 + #Removed to reduce influence of CB67A
                  Xcoord
                # hd_500
+               + 
                ,data=filter(lurdata,!is.na(pm25_adj))))
 summary(pm25adj)
 
@@ -1406,7 +1410,7 @@ pm10adj <- (lm(pm10_adj~
                  # lu_ug_5000 +
                  # roads_tl_500 +
                  XplusY 
-               # stspeed_sl_500
+               # stspeed_sl_500 +
                ,data=filter(lurdata,!is.na(pm10_adj))))
 summary(pm10adj)
 
