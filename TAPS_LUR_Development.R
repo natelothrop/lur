@@ -10,7 +10,7 @@ rm(list=ls())
 
 packages <- c('devtools', 'caret', 'car', 'raster', 'leaflet', 'leaflet.minicharts', 'AICcmodavg',
               'htmltools','rgdal', 'sp', 'sf', 'methods', 'tidyverse', 'lwgeom', 'arm', 'mapview', 
-              'ggmap', 'lme4', 'lmerTest', 'lctools')
+              'ggmap', 'lme4', 'lmerTest', 'lctools', 'maps', 'mapdata')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -67,6 +67,22 @@ cmntplant <- SpatialPointsDataFrame(coords = cmntplant[,c("lon","lat")], data = 
 
 writeOGR(cmntplant, dsn = ".", layer = "CementPlants" ,driver = "ESRI Shapefile")
 
+# Geocode bus maintainence depots
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
+busdepots <- read.csv("BusDepots.csv")
+
+busdepots$AddressFull <- paste(busdepots$Address, 
+                               busdepots$City, 
+                               busdepots$State,
+                               busdepots$Zip, sep=', ')
+
+busdepots <- mutate_geocode(busdepots, location=AddressFull, output="latlona" , source="dsk")
+
+busdepots <- SpatialPointsDataFrame(coords = busdepots[,c("lon","lat")], data = busdepots,
+                                    proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+writeOGR(busdepots, dsn = ".", layer = "BusDepots" ,driver = "ESRI Shapefile")
+
 shape_input <- function(shp_name) {
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
   st_read(shp_name, stringsAsFactors = F) %>%
@@ -90,6 +106,9 @@ tepplant <- shape_input("tep_station.shp")
 stspeed <- shape_input("stspeed.shp")
 histdev <- shape_input("dev_hist.shp")
 vehtype <- shape_input("Roads_VehicleType.shp")
+schools <- shape_input("schools.shp")
+busdepots <- shape_input("BusDepots.shp")
+
 
 # Drop developments with no units listed
 histdev <- filter(histdev, UNITS>0)
@@ -115,21 +134,23 @@ roads <- roads[ , grepl( "VD" , names( roads ) ) ]
 # Remove vehicle type fields that don't start with F or VD
 vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( vehtype ) )  ]
 
-# Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
-# vehtype$TD80 <- (vehtype$F80__T + vehtype$F80__Truck) * vehtype$VD80
-# vehtype$TD81 <- (vehtype$F81__T + vehtype$F81__Truck) * vehtype$VD81
-# vehtype$TD82 <- (vehtype$F82__T + vehtype$F82__Truck) * vehtype$VD82
-# vehtype$TD83 <- (vehtype$F83__T + vehtype$F83__Truck) * vehtype$VD83
-# vehtype$TD84 <- (vehtype$F84__T + vehtype$F84__Truck) * vehtype$VD84
-# vehtype$TD85 <- (vehtype$F85__T + vehtype$F85__Truck) * vehtype$VD85
-# vehtype$TD86 <- (vehtype$F86__T + vehtype$F86__Truck) * vehtype$VD86
-# vehtype$TD87 <- (vehtype$F87__T + vehtype$F87__Truck) * vehtype$VD87
-# vehtype$TD88 <- (vehtype$F88__T + vehtype$F88__Truck) * vehtype$VD88
-# vehtype$TD89 <- (vehtype$F89__T) * vehtype$VD89
-# vehtype$TD90 <- (vehtype$F90__T) * vehtype$VD90
-# vehtype$TD91 <- (vehtype$F91__T) * vehtype$VD91
-# vehtype$TD92 <- (vehtype$F92__T) * vehtype$VD92
+# Remove schools from list that are not part of district that provides bus services
+schools <- subset(schools, !is.na(SDISTNAME))
 
+# Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
+vehtype$TD80 <- (vehtype$F80__T + vehtype$F80__Truck) * vehtype$VD80
+vehtype$TD81 <- (vehtype$F81__T + vehtype$F81__Truck) * vehtype$VD81
+vehtype$TD82 <- (vehtype$F82__T + vehtype$F82__Truck) * vehtype$VD82
+vehtype$TD83 <- (vehtype$F83__T + vehtype$F83__Truck) * vehtype$VD83
+vehtype$TD84 <- (vehtype$F84__T + vehtype$F84__Truck) * vehtype$VD84
+vehtype$TD85 <- (vehtype$F85__T + vehtype$F85__Truck) * vehtype$VD85
+vehtype$TD86 <- (vehtype$F86__T + vehtype$F86__Truck) * vehtype$VD86
+vehtype$TD87 <- (vehtype$F87__T + vehtype$F87__Truck) * vehtype$VD87
+vehtype$TD88 <- (vehtype$F88__T + vehtype$F88__Truck) * vehtype$VD88
+vehtype$TD89 <- (vehtype$F89__T) * vehtype$VD89
+vehtype$TD90 <- (vehtype$F90__T) * vehtype$VD90
+vehtype$TD91 <- (vehtype$F91__T) * vehtype$VD91
+vehtype$TD92 <- (vehtype$F92__T) * vehtype$VD92
 vehtype$TD15 <- (vehtype$F10__S + vehtype$F10__C)/100 * vehtype$VD15
 
 
@@ -168,7 +189,7 @@ addrs$elev <- NULL
 #### Polygon areal predictors (census, land use, housing development history) ####
 
 #Land uses weighted to area
-abuffdists <- c(100, 300, 500, 1000, 5000)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
 intx_lu <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
@@ -218,7 +239,7 @@ mapply(FUN = intx_lu, predictors, abuffdists)
 
 
 #Census population and households weighted to area
-abuffdists <- c(100, 300, 500, 1000, 5000)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
 intx_census <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
@@ -264,7 +285,7 @@ mapply(FUN = intx_census, predictors, abuffdists)
 
 #Historic housing development planned units weighted to buffer area
 # only current to 2015 as of 10/12/18, so for TAPS, no need to cut by year
-abuffdists <- c(100, 300, 500, 1000, 5000)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
 intx_histdev <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
@@ -272,7 +293,6 @@ intx_histdev <- function(p,abuffdists,i){
   if (nrow(intx)>0) {
     intx <- intx %>%
       mutate(histdev_sum = sum(UNITS))
-
 
     hd <- data.frame(rowsum(x = intx$histdev_sum, group = intx$hhid_x))
     hd$hhid_x <- row.names(hd)
@@ -292,7 +312,7 @@ mapply(FUN = intx_histdev, predictors, abuffdists)
 #Time-Integrated NDVI:TIN	
 #Canopy photosynthetic activity across the entire growing season (interpolated NDVI).
 
-abuffdists <- c(100, 300, 500, 1000, 5000)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
 intx_tin <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
@@ -324,34 +344,34 @@ mapply(FUN = intx_tin, predictors, abuffdists)
 
 #### Point areal predictors (Bus stops) ####
 
-abuffdists <- c(100, 300, 500, 1000, 5000)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
-intx_busstops <- function(p,abuffdists,i){
+intx_pts_inarea <- function(p,abuffdists,i){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
   if (nrow(intx)>0) {
     intx <- intx %>%
       group_by(hhid_x) %>%
-      mutate(busstop_sum = n())
+      mutate(pts_sum = n())
     
-    busstops <- data.frame(intx)
+    intx <- data.frame(intx)
     
-    busstops <- busstops %>% 
-      distinct(hhid_x, busstop_sum)
+    intx <- intx %>% 
+      distinct(hhid_x, pts_sum)
     
-    names(busstops)[2] <- paste0("busstops_",as.character(abuffdists))
-    write.csv(busstops, paste0("busstops_",as.character(abuffdists),".csv"),row.names = F)
-    
+    names(intx)[2] <- paste0(names(predictors)[i],"_",as.character(abuffdists))
+    write.csv(intx, paste0(names(predictors)[i],"_",as.character(abuffdists),".csv"),row.names = F)
     
   } else {
-    print("busstops_",as.character(abuffdists)," had no intersections")
+    print(paste0(names(predictors)[i],"_",as.character(abuffdists))," had no intersections")
   }
 }
 
 predictors <- list("busstops" = busstops)
-mapply(FUN = intx_busstops, predictors, abuffdists)
+mapply(FUN = intx_pts_inarea, predictors, abuffdists)
 
-
+predictors <- list("schools" = schools)
+mapply(FUN = intx_pts_inarea, predictors, abuffdists)
 
 #### Line length of sources without vehicle loading in buffers (bus routes, rail lines) ####
 
@@ -775,8 +795,16 @@ mapply(FUN = nearest_poly_pt, predictors)
 predictors <- list("tepplant" = tepplant)
 mapply(FUN = nearest_poly_pt, predictors)
 
-# # Distance to nearest cement plant
+# Distance to nearest cement plant
 predictors <- list("cmntplant" = cmntplant)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest school
+predictors <- list("schools" = schools)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest bus maintenance depot
+predictors <- list("busdepots" = busdepots)
 mapply(FUN = nearest_poly_pt, predictors)
 
 #### CALINE 2010 Average Annual PM2.5 Concentration ####
@@ -1141,11 +1169,12 @@ mapshot(map, url = "pm10_taps_2015.html")
 #### Develop LUR - NO2 - Multiple Linear ####
 
 no2adj <- (lm(no2_adj~lu_hr_1000 +
-                # distintvmine1 +
+                # distintvmine1 + # NOTE - removed b/c pvalue > 0.1
                 distintvrail1 +
                 elev +
-                # lu_nt_100 +
-                roads_rl_1000
+                # lu_nt_100 + # NOTE - removed b/c pvalue > 0.1
+                roads_rl_1000 
+                # schools_300 # NOTE - removed b/c pvalue > 0.1
               ,data=lurdata))
 summary(no2adj)
 
@@ -1246,12 +1275,13 @@ summary(no2)
 noxadj <- (lm(nox_adj~
                 busstops_5000 +
                 distintvmine1 +
-                # distintvrail1 + #NOTE - removed due to high influence via ZD62_A
+                distintvrail1 + 
                 elev +
                 lu_hr_1000 +
-                lu_nt_100 +
+                lu_nt_100 + 
                 # roads_rl_100 + #NOTE - removed due to pvalue > 0.10
-                roads_rl_50
+                roads_rl_50 + 
+                schools_300
               ,data=subset(lurdata, !is.na(nox_adj)))) 
 summary(noxadj)
 
@@ -1275,10 +1305,12 @@ train_control <- trainControl(method="LOOCV")
 model_loocv <- train(nox_adj~
                        busstops_5000 +
                        distintvmine1 +
+                       distintvrail1 + 
                        elev +
                        lu_hr_1000 +
-                       lu_nt_100 +
-                       roads_rl_50
+                       lu_nt_100 + 
+                       roads_rl_50 + 
+                       schools_300
                      ,data=subset(lurdata, (!is.na(nox_adj)))) # NOTE - home removed due to Cook's D over 1
 # summarize results
 print(model_loocv)
@@ -1323,12 +1355,12 @@ AICc(nox)
 #### Develop LUR - PM2.5 - Multiple Linear  ####
 
 pm25adj <- (lm(pm25_adj~
-                 # elev +
+                 # elev + #NOTE - removed due to pvalue > 0.10
                  busrt_l_300 +
                  # distintvair1 + #Removed to reduce influence of CB67A
-                 Xcoord
-               # hd_500
-               + 
+                 Xcoord +
+               hd_500 +
+                 schools_500
                ,data=filter(lurdata,!is.na(pm25_adj))))
 summary(pm25adj)
 
@@ -1351,7 +1383,9 @@ train_control <- trainControl(method="LOOCV")
 # train the model
 model_loocv <- train(pm25_adj~
                        busrt_l_300 +
-                       Xcoord 
+                       Xcoord +
+                       hd_500 +
+                       schools_500
                      ,data=filter(lurdata, !is.na(pm25_adj)), trControl=train_control, method="lm")
 # summarize results
 print(model_loocv)
