@@ -121,6 +121,10 @@ trnscenters <- filter(busstops,
                       StopName=="SS/Downtown Ronstadt Center" |
                       StopName=="SS/Tohono Transit Center")
 
+
+# Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
+roads <- roads[ , grepl( "VD" , names( roads ) ) ]
+
 #define major roads as >5000 vehicles/day as per ESCAPE
 mroads <- subset(roads, roads$VD15>5000)
 
@@ -128,14 +132,29 @@ mroads <- subset(roads, roads$VD15>5000)
 dmafb <- filter(air, NAME == "DAVIS-MONTHAN AIR FORCE BASE")
 tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
 
-# Drop fields from merging by Melissa Furlong other than those than contain vehicles per day data 
-roads <- roads[ , grepl( "VD" , names( roads ) ) ]
-
 # Remove vehicle type fields that don't start with F or VD
 vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( vehtype ) )  ]
 
 # Remove schools from list that are not part of district that provides bus services
 schools <- subset(schools, !is.na(SDISTNAME))
+<<<<<<< HEAD
+=======
+
+# Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
+# vehtype$TD80 <- (vehtype$F80__T + vehtype$F80__Truck) * vehtype$VD80
+# vehtype$TD81 <- (vehtype$F81__T + vehtype$F81__Truck) * vehtype$VD81
+# vehtype$TD82 <- (vehtype$F82__T + vehtype$F82__Truck) * vehtype$VD82
+# vehtype$TD83 <- (vehtype$F83__T + vehtype$F83__Truck) * vehtype$VD83
+# vehtype$TD84 <- (vehtype$F84__T + vehtype$F84__Truck) * vehtype$VD84
+# vehtype$TD85 <- (vehtype$F85__T + vehtype$F85__Truck) * vehtype$VD85
+# vehtype$TD86 <- (vehtype$F86__T + vehtype$F86__Truck) * vehtype$VD86
+# vehtype$TD87 <- (vehtype$F87__T + vehtype$F87__Truck) * vehtype$VD87
+# vehtype$TD88 <- (vehtype$F88__T + vehtype$F88__Truck) * vehtype$VD88
+# vehtype$TD89 <- (vehtype$F89__T) * vehtype$VD89
+# vehtype$TD90 <- (vehtype$F90__T) * vehtype$VD90
+# vehtype$TD91 <- (vehtype$F91__T) * vehtype$VD91
+# vehtype$TD92 <- (vehtype$F92__T) * vehtype$VD92
+>>>>>>> 2c0d8b806bdeb0c3b50818fd1997a0a838bfe486
 
 # Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
 vehtype$TD80 <- (vehtype$F80__T + vehtype$F80__Truck) * vehtype$VD80
