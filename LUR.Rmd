@@ -1,0 +1,321 @@
+---
+title: "Lothrop PhD - Aim 1"
+author: "Nathan Lothrop"
+date: "January 20, 2019"
+output: html_document
+---
+
+
+## General LUR Workflow
+
+In order to create the best externally validated LUR model for each pollutant, there are several steps: 
+
+1. wrangling the source data for TAPS and PCWS, as well as PDEQ background monitor data; 
+2. developing the LUR model using the ESCAPE method; and 
+3. externally validating the model with 4 different ways of adjusting for changes over time.
+
+### Wrangling Study Data
+
+Basic steps:
+
+1. Pull in study data
+2. pull in background PDEQ monitor
+3. create annual avg of each pollutant via ESCAPE method
+
+However PCWS didn't follow ESCAPE so this is slightly more involved and we will have to make assumptions compared to TAPS.
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+# Clear environment of temporary files
+rm(list=ls())
+
+# Read in packages
+packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2')
+
+package.check <- lapply(packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+
+#read in all p5 data
+p5all<- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results/P5_Master.csv")
+
+#subset out the monitor data that has hhid >5000
+monitor<-subset(p5all,hhid>5001)
+data<-subset(p5all,hhid<5001)
+
+str(data)
+
+keeps<-c("hhid","stday","stmon","styear","no2ppb", "pm25ugm3","pm10ugm3")
+data<-data[keeps]
+
+data <- unique(data[,1:7])
+
+# Assign 1 of 3 season values (Winter, Intermed, Summer)
+data$stssn3 <- ifelse((data$stmon==3 | data$stmon==4 | data$stmon==9 | data$stmon==10), 2,
+                     ifelse((data$stmon==1 | data$stmon==2 | data$stmon==11 | data$stmon==12), 1, 3))
+                               
+data$stssn3 <- factor(data$stssn3,
+                    levels = c(1,2,3),
+                    labels = c("Winter", "Intermed.", "Summer"))
+
+# Assign 1 of 4 season values (Winter, Spring, Summer, Fall)
+data$stssn4 <- ifelse((data$stmon==1 | data$stmon==2 | data$stmon==11 | data$stmon==12), 1,
+                      ifelse((data$stmon==3 | data$stmon==4), 2,
+                              ifelse((data$stmon==5 | data$stmon==6 | data$stmon==7 | data$stmon==8), 3, 4)))
+                               
+data$stssn4 <- factor(data$stssn4,
+                    levels = c(1,2,3,4),
+                    labels = c("Winter", "Spring", "Summer", "Fall"))
+
+datano2 <- subset(data,!is.na(no2ppb))
+datapm25 <- subset(data,!is.na(pm25ugm3))
+datapm10 <- subset(data,!is.na(pm10ugm3))
+```
+
+######PCWS NO2
+```{r, echo=FALSE, warning=FALSE}
+datano2 %>%
+  group_by(styear) %>%
+  summarise(n.obs=length(no2ppb),
+            n.homes=n_distinct(hhid),
+            geomean=exp(mean(log(no2ppb))),
+            mean=mean(no2ppb),
+            geosd=exp(sd(log(no2ppb))),
+            min=min(no2ppb),
+            max=max(no2ppb))
+```
+
+######PCWS PM2.5
+```{r, echo=FALSE, warning=FALSE}
+datapm25 %>%
+  group_by(styear) %>%
+  summarise(n.obs=length(pm25ugm3),
+            n.homes=n_distinct(hhid),
+            geomean=exp(mean(log(pm25ugm3))),
+            mean=mean(pm25ugm3),
+            geosd=exp(sd(log(pm25ugm3))),
+            min=min(pm25ugm3),
+            max=max(pm25ugm3))
+```
+
+######PCWS PM10
+```{r, echo=FALSE, warning=FALSE}
+datapm10 %>%
+  group_by(styear) %>%
+  summarise(n.obs=length(pm10ugm3),
+            n.homes=n_distinct(hhid),
+            geomean=exp(mean(log(pm10ugm3))),
+            mean=mean(pm10ugm3),
+            geosd=exp(sd(log(pm10ugm3))),
+            min=min(pm10ugm3),
+            max=max(pm10ugm3))
+```
+Many PCWS homes are measured more than once in a year, but often are measured back to back (one week, then the next). We will use all measures (and correct for changes in air pollution levels over time), as ESCAPE allows for 1-3 or more measures throughout the year (see page 9 and 10 here: http://escapeproject.eu/manuals/ESCAPE_Exposure-manualv9.pdf).
+
+However, before committing to this, we will investigate how many homes have measures over multiple years, because if they do, then it may not make sense in LUR development if we have predictors that change over the time span to put all homes in the same model.
+
+
+######Homes with more than 2 measures in different MONTHS in the same year for NO2:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+data %>%
+  filter(!is.na(no2ppb)) %>%
+  dplyr::group_by(hhid,styear, stmon) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(no2ppb))
+            
+datano2 <- datano2 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(no2_bymonth = n_distinct(stmon))
+
+datano2 %>%
+  filter(no2_bymonth>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(no2ppb))
+```
+So for NO2, there are multiple homes in 87-89 with 2 or more measures in different months.
+
+Let's check this same thing for PM2.5.
+
+######Homes with 2 or more measures in different MONTHS in the same year for PM2.5:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm25 <- datapm25 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm25_bymonth = n_distinct(stmon))
+
+datapm25 %>%
+  filter(pm25_bymonth>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm25ugm3))
+```
+For PM2.5, only 2 homes have more than 1 measure in different months. 
+
+######Homes with 2 or more measures in different MONTHS in the same year for PM10:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm10 <- datapm10 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm10_bymonth = n_distinct(stmon))
+
+datapm10 %>%
+  filter(pm10_bymonth>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm10ugm3))
+```
+For PM10, only 2 homes have more than 1 measure in different months. 
+
+
+######Homes with 2 or more measures in different SEASONS in the same year (ESCAPE 3-season approach) for NO2:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datano2 <- datano2 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(no2_byseason3 = n_distinct(stssn3))
+
+datano2 %>%
+  filter(no2_byseason3>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(no2ppb))
+``` 
+
+######Homes with 2 or more measures in different SEASONS in the same year (ESCAPE 3-season approach) for PM2.5:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm25 <- datapm25 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm25_byseason3 = n_distinct(stssn3))
+
+datapm25 %>%
+  filter(pm25_byseason3>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm25ugm3))
+``` 
+There are NO homes with 2 or more PM2.5 measures in different ESCAPE seasons in same year.
+
+######Homes with 2 or more measures in different SEASONS in the same year (ESCAPE 3-season approach) for PM10:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm10 <- datapm10 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm10_byseason3 = n_distinct(stssn3))
+
+datapm10 %>%
+  filter(pm10_byseason3>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm10ugm3))
+``` 
+There are NO homes with 2 or more PM10 measures in different ESCAPE seasons in same year.
+
+######Homes with 2 or more measures in different SEASONS in the same year (non-ESCAPE 4-season approach) for NO2:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datano2 <- datano2 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(no2_byseason4 = n_distinct(stssn4))
+
+datano2 %>%
+  filter(no2_byseason4>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(no2ppb))
+``` 
+######Homes with 2 or more measures in different SEASONS in the same year (non-ESCAPE 4-season approach) for PM2.5:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm25 <- datapm25 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm25_byseason4 = n_distinct(stssn4))
+
+datapm25 %>%
+  filter(pm25_byseason4>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm25ugm3))
+```
+No homes again for PM2.5, using 4 season approach.
+
+######Homes with 2 or more measures in different SEASONS in the same year (non-ESCAPE 4-season approach) for PM10:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+datapm10 <- datapm10 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm10_byseason4 = n_distinct(stssn4))
+
+datapm10 %>%
+  filter(pm10_byseason4>1) %>%
+  group_by(styear) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(pm10ugm3))
+```
+No homes again for PM10, using 4 season approach.
+
+
+Since only NO2 has >1 measure/season or month in more than a handful of homes like PM2.5 and PM10, we'll base our season definition off this. 
+
+**We'll go with the 3 season as this the ESCAPE approach** which we want to follow anyways and there are no difference b/w 3 and 4 month season definitions.
+
+Now let's look at whether there are homes that have >1 NO2 measure in distinct months/year IN multiple years and the same, but for seasons in multiple years.
+
+######Homes with 2 or more measures in different MONTHS in the same year over MULTIPLE years for NO2:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+#create frequency of measurement by year and season
+#no2
+datano2 <- datano2 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(no2_bymonth = n_distinct(stmon))
+
+datano2 %>%
+  filter(no2_bymonth>1) %>%
+  group_by(hhid) %>%
+  summarise(n_years = n_distinct(styear),
+            n_obs = n_distinct(no2ppb)) %>%
+  arrange(desc(n_years,hhid))
+```
+
+It doesn't look like any homes have observations in more than 1 year (looking at n_years) (>1 distinct measure/month).
+
+######Homes with 2 or more measures in different SEASONS in the same year over MULTIPLE years for NO2:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+#create frequency of measurement by year and season
+#no2
+datano2 <- datano2 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(no2_byseason3 = n_distinct(stssn3))
+
+datano2 %>%
+  filter(no2_byseason3>1) %>%
+  group_by(hhid) %>%
+  summarise(n_years = n_distinct(styear),
+            n_obs = n_distinct(no2ppb)) %>%
+  arrange(desc(n_years,hhid))
+```
+Ditto for season!
+
+Now we know that PCWS homes that have >1 measure/year (an ESCAPE inclusion criteria) only have this multiple measures over a single year. This means we can move forward with the outlined idea discussed with group at the Beamer lab meeting on 1/16/19:
+
+1. do annual average only for all homes with >1 measure in 1987, then for all homes with measures in 1988...1992
+2. run GIS predictor development to get year-specific predictors for each yearly dataset, each predictor name should be IDENTICAL
+3. append all these datasets (stack rows)
+4. build LUR for each pollutant
+5. using annual average data, externally validate TAPS model
+
+#### PCWS-Create annual avg for homes with 
+
+#### TAPS Data
+TAPS data is relatively easy to work with and this has already been pulled in with the script TAPS_Data_Cleaning. It does QC and does the annual averages just as ESCAPE did.
+
+#### PCWS Data
+PCWS data is collected over 5 years, so much messier. 
+
+
