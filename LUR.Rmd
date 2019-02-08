@@ -29,7 +29,7 @@ However PCWS didn't follow ESCAPE so this is slightly more involved and we will 
 rm(list=ls())
 
 # Read in packages
-packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2')
+packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2', 'lubridate')
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -96,6 +96,17 @@ data %>%
             geosd=exp(sd(log(no2ppb))),
             min=min(no2ppb),
             max=max(no2ppb))
+
+data %>%
+  filter(!is.na(no2ppb)) %>%
+  group_by(hhid) %>%
+  summarise(n.obs=length(no2ppb),
+            n.homes=n_distinct(hhid),
+            geomean=exp(mean(log(no2ppb))),
+            mean=mean(no2ppb),
+            geosd=exp(sd(log(no2ppb))),
+            min=min(no2ppb),
+            max=max(no2ppb))
 ```
 
 ######PCWS PM2.5
@@ -117,6 +128,17 @@ data %>%
 data %>%
   filter(!is.na(pm10ugm3)) %>%
   group_by(styear) %>%
+  summarise(n.obs=length(pm10ugm3),
+            n.homes=n_distinct(hhid),
+            geomean=exp(mean(log(pm10ugm3))),
+            mean=mean(pm10ugm3),
+            geosd=exp(sd(log(pm10ugm3))),
+            min=min(pm10ugm3),
+            max=max(pm10ugm3))
+
+data %>%
+  filter(!is.na(pm10ugm3)) %>%
+  group_by(hhid) %>%
   summarise(n.obs=length(pm10ugm3),
             n.homes=n_distinct(hhid),
             geomean=exp(mean(log(pm10ugm3))),
@@ -303,11 +325,9 @@ datano2 %>%
 
 There are many homes that have obs in more than 1 year (>1 distinct measure/month).
 
-######Homes with 2 or more measures in different SEASONS in the same year over MULTIPLE years for NO2:
+######NO2 test for how many homes have measures in multiple seasons and multiple years:
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
-#create frequency of measurement by year and season
-#no2
 datano2 <- datano2 %>%
   dplyr::group_by(hhid,styear) %>%
   mutate(no2_byseason3 = n_distinct(stssn3))
@@ -318,20 +338,47 @@ datano2 %>%
   summarise(n_years = n_distinct(styear),
             n_obs = n_distinct(no2ppb)) %>%
   arrange(desc(n_years,hhid))
+
+datano2 %>%
+  group_by(hhid) %>%
+  summarise(n_unique_years = n_distinct(styear),
+            n_obs = n_distinct(no2ppb)) %>%
+  filter(n_unique_years>2) %>%
+  arrange(desc(n_unique_years,n_obs))
 ```
-**NO2**Homes that have NO2 measures >=1/year are done OVER multiple years. However those with >1 NO2 measure/year do NOT have measures in multiple years.
+**NO2**
+Of 334 homes, 155 have measures in 2 different years, amd 15 have measures in 3 different years.
 
-**PM**Homes that have PM measures >=1/year are done OVER multiple years. However those with >1 PM measure/year only have "next week" measures in that year and then some have 1 measure in another year, however there are essentially none of these.
+######PM2.5 test for how many homes have measures in multiple seasons and multiple years:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
-**This means that if we stuck to "more than 1 measure in a year" approach, we'd be able to do have yearly-based predictors with homes that only have an annual avg outcome in one year for NO2 alone! There are no homes that did PM that would be included in this approach.**
+datapm25 <- datapm25 %>%
+  dplyr::group_by(hhid,styear) %>%
+  mutate(pm25_byseason3 = n_distinct(stssn3))
 
-**This means that we could 1) use different inclusion criteria to make this work (NO2: >1 measure/year with no repeat measures in a month, in multiple months; PM: >=1 measure/year, in multiple months). THis makes no sense!**
+datapm25 %>%
+  filter(pm25_byseason3>1) %>%
+  group_by(hhid) %>%
+  summarise(n_years = n_distinct(styear),
+            n_obs = n_distinct(pm25ugm3)) %>%
+  arrange(desc(n_years,hhid))
 
-**FOR NOW, we will use following approach**
+datapm25 %>%
+  group_by(hhid) %>%
+  summarise(n_unique_years = n_distinct(styear),
+            n_obs = n_distinct(pm25ugm3)) %>%
+  # filter(n_unique_years>1) %>%
+  arrange(desc(n_unique_years,n_obs))
+```
 
-1. do annual average for homes with >=1 measure in 1987, then 1988...1992
-2. figure out what homes have multiple annual averages (ie have a measure in >=1year)
-3. compare averages among these homes that have multiple annual avgs
+**PM2.5**
+Of 60 homes, 7 have measures in different years. The rest have only a single measure (in a single year).
+
+**After speaking with Dr. Beamer on 1/30/19 in office hours, the approach will be this:**
+
+1. for a single pollutant (NO2?) do annual average for all homes, regardless of how many times they're measured
+2. complete LUR model for this "all homes" approach (all homes get year-specific predictor, eg a home with 1987 avg will have the traffic volume predictors be named same as home from 1989, but have year-specific value)
+3. then, as a sensitivity analysis, do it so that each home is included annual average just once in model
 
 #### PCWS Annual Averages
 
@@ -370,6 +417,10 @@ pm10_ref <- pm10_ref %>%
   dplyr::filter(!is.na(Date.Local) | !is.na(pm10_ref)) %>%
   dplyr::select(Date.Local, pm10_ref)
 
+no2_ref <- filter(no2_ref, !is.na(no2_ref))
+pm25_ref <- filter(pm25_ref, !is.na(pm25_ref))
+pm10_ref <- filter(pm10_ref, !is.na(pm10_ref))
+
 summary(no2_ref$no2_ref)
 summary(pm25_ref$pm25_ref)
 summary(pm10_ref$pm10_ref)
@@ -378,8 +429,190 @@ summary(pm10_ref$pm10_ref)
 ```
 Summary values all make sense. The very high PM10 values all have description qualifiers on them in the raw data noting high wind events (eg dust storms), which are a known issue in this area that will push Pima County to violate PM10 NAAQS standards. Next step is to merge together by start date to relevant pollutant.
 
-##### Create Daily Avg for PDEQ Background Monitors
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+#read in all p5 data
+p5all<- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results/P5_Master.csv")
+
+#subset out the monitor data that has hhid >5000
+monitor<-subset(p5all,hhid>5001)
+data<-subset(p5all,hhid<5001)
+
+str(data)
+
+keeps<-c("hhid","stday","stmon","styear",
+         "endday","endmon","endyear"
+         ,"no2ppb", "pm25ugm3","pm10ugm3")
+data<-data[keeps]
+
+# Average duplicates (same run period)
+data <- data %>%
+  group_by(hhid,stday,stmon,styear,endday,endmon,endyear) %>%
+  summarise(no2ppb = mean(no2ppb),
+         pm25ugm3 = mean(pm25ugm3),
+         pm10ugm3 = mean(pm10ugm3))
+
+
+# Assign 1 of 3 season values (Winter, Intermed, Summer)
+data$stssn3 <- ifelse((data$stmon==3 | data$stmon==4 | data$stmon==9 | data$stmon==10), 2,
+                     ifelse((data$stmon==1 | data$stmon==2 | data$stmon==11 | data$stmon==12), 1, 3))
+                               
+data$stssn3 <- factor(data$stssn3,
+                    levels = c(1,2,3),
+                    labels = c("Winter", "Intermed.", "Summer"))
+
+# Assign 1 of 4 season values (Winter, Spring, Summer, Fall)
+data$stssn4 <- ifelse((data$stmon==1 | data$stmon==2 | data$stmon==11 | data$stmon==12), 1,
+                      ifelse((data$stmon==3 | data$stmon==4), 2,
+                              ifelse((data$stmon==5 | data$stmon==6 | data$stmon==7 | data$stmon==8), 3, 4)))
+                               
+data$stssn4 <- factor(data$stssn4,
+                    levels = c(1,2,3,4),
+                    labels = c("Winter", "Spring", "Summer", "Fall"))
+
+datano2 <- subset(data,!is.na(no2ppb))
+datapm25 <- subset(data,!is.na(pm25ugm3))
+datapm10 <- subset(data,!is.na(pm10ugm3))
+
+
+```
+
+##### Create annual averages corrected for temporal changes
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Approach:
+# 1. figure out what ref monitor dates are after the start date and before the end date of the home measurement (through decimalized dating)
+# 2. for this ref date period, take the average of the pollutant measurement, then divide that by the annual average to get the ratio temporal correction
+# 3. multiple the ratio temporal correction by the home measure for that period
+# 4. average the product(s) from step 3, resulting in the home's annual average
+
+# Create decimalized dates for ref data
+no2_ref$date_dec <- decimal_date(as.Date(no2_ref$Date.Local,format="%Y-%m-%d"))
+pm25_ref$date_dec <- decimal_date(as.Date(pm25_ref$Date.Local,format="%Y-%m-%d"))
+pm10_ref$date_dec <- decimal_date(as.Date(pm10_ref$Date.Local,format="%Y-%m-%d"))
+
+# Create monthly and annual averages for ref data-NO2
+no2_ref$year <- as.integer(year(no2_ref$Date.Local))
+no2_ref$mon <- as.integer(month(no2_ref$Date.Local))
+
+no2_ref_yearavg <- no2_ref %>%
+  group_by(year) %>%
+  summarise(no2_year_avg=mean(no2_ref))
+
+no2_ref_monavg <- no2_ref %>%
+  group_by(mon, year) %>%
+  summarise(no2_mon_avg=mean(no2_ref))
+
+# Create monthly and annual averages for ref data-PM2.5
+pm25_ref$year <- as.integer(year(pm25_ref$Date.Local))
+pm25_ref$mon <- as.integer(month(pm25_ref$Date.Local))
+
+pm25_ref_yearavg <- pm25_ref %>%
+  group_by(year) %>%
+  summarise(pm25_year_avg=mean(pm25_ref))
+
+pm25_ref_monavg <- pm25_ref %>%
+  group_by(mon, year) %>%
+  summarise(pm25_mon_avg=mean(pm25_ref))
+
+# Create monthly and annual averages for ref data-PM10
+pm10_ref$year <- as.integer(year(pm10_ref$Date.Local))
+pm10_ref$mon <- as.integer(month(pm10_ref$Date.Local))
+
+pm10_ref_yearavg <- pm10_ref %>%
+  group_by(year) %>%
+  summarise(pm10_year_avg=mean(pm10_ref))
+
+pm10_ref_monavg <- pm10_ref %>%
+  group_by(mon, year) %>%
+  summarise(pm10_mon_avg=mean(pm10_ref))
+
+# Create decimalized dates (start and end) for measurement data
+data$styear <- data$styear + 1900
+data$endyear <- data$endyear + 1900
+
+data$st_date <- as.Date(with(data, paste(styear, stmon, stday,sep="-")), "%Y-%m-%d")
+data$end_date <- as.Date(with(data, paste(endyear, endmon, endday,sep="-")), "%Y-%m-%d")
+
+data$stdate_dec <- decimal_date(as.Date(data$st_date,format="%Y-%m-%d"))
+data$enddate_dec <- decimal_date(as.Date(data$end_date,format="%Y-%m-%d"))
+
+# Join monthly and yearly averages of reference monitors to measurement data
+data <- full_join(data,no2_ref_monavg,by=c("styear"="year","stmon"="mon"))
+data <- full_join(data,no2_ref_yearavg,by=c("styear"="year"))
+data <- full_join(data,pm25_ref_monavg,by=c("styear"="year","stmon"="mon"))
+data <- full_join(data,pm25_ref_yearavg,by=c("styear"="year"))
+data <- full_join(data,pm10_ref_monavg,by=c("styear"="year","stmon"="mon"))
+data <- full_join(data,pm10_ref_yearavg,by=c("styear"="year"))
+
+# Filter out those that have no hhid
+data <- filter(data, !is.na(hhid))
+
+# Create the ratio-adjusted NO2 measurement (no2_adj)
+data$no2_adj <- 0
+for(i in 1:nrow(data)){
+  stdate <- c(data[i,15])
+  enddate <- c(data[i,16])
+  no2_period_avg <- mean(as.numeric(unlist(c(no2_ref[no2_ref$date_dec >= stdate & no2_ref$date_dec <= enddate,2])))) # calculate the average ref for that period of measurment
+  if(!is.na(no2_period_avg)){ # Note!-not all measurement periods have a ref monitor running, so use the monthly average (of that starting measurement month) to annual ratio instead
+    no2_period_ratio <- no2_period_avg/data[i,18] # calculate the ratio of ref period to annual avg
+    data[i,23] <- no2_period_ratio * data[i,8] # adjust measurement by period to year ratio
+  }else{
+    no2_mon_ratio <- data[i,17]/data[i,18] # calculate the ratio of ref mon to annual avg
+    data[i,23] <- no2_mon_ratio * data[i,8] # adjust measurement by month to year ratio
+    }
+}
+
+# Look for NO2 measures that have a raw measurement but no temporally-adjusted concentration
+sum(!is.na(data$no2ppb) & is.na(data$no2_adj))
+
+# Create the ratio-adjusted PM2.5 measurement (pm25_adj)
+data$pm25_adj <- 0
+for(i in 1:nrow(data)){
+  stdate <- c(data[i,15])
+  enddate <- c(data[i,16])
+  pm25_period_avg <- mean(as.numeric(unlist(c(pm25_ref[pm25_ref$date_dec >= stdate & pm25_ref$date_dec <= enddate,2])))) # calculate the average ref for that period of measurment
+  if(!is.na(pm25_period_avg)){ # Note!-not all measurement periods have a ref monitor running, so use the monthly average (of that starting measurement month) to annual ratio instead
+    pm25_period_ratio <- pm25_period_avg/data[i,20] # calculate the ratio of ref period to annual avg
+    data[i,24] <- pm25_period_ratio * data[i,9] # adjust measurement by period to year ratio
+  }else{
+    pm25_mon_ratio <- data[i,19]/data[i,20] # calculate the ratio of ref mon to annual avg
+    data[i,24] <- pm25_mon_ratio * data[i,9] # adjust measurement by month to year ratio
+    }
+}
+
+# Look for PM2.5 measures that have a raw measurement but no temporally-adjusted concentration
+sum(!is.na(data$pm25ugm3) & is.na(data$pm25_adj))
+
+# Create the ratio-adjusted PM10 measurement (pm10_adj)
+data$pm10_adj <- 0
+for(i in 1:nrow(data)){
+  stdate <- c(data[i,15])
+  enddate <- c(data[i,16])
+  pm10_period_avg <- mean(as.numeric(unlist(c(pm10_ref[pm10_ref$date_dec >= stdate & pm10_ref$date_dec <= enddate,2])))) # calculate the average ref for that period of measurment
+  if(!is.na(pm10_period_avg)){ # Note!-not all measurement periods have a ref monitor running, so use the monthly average (of that starting measurement month) to annual ratio instead
+    pm10_period_ratio <- pm10_period_avg/data[i,22] # calculate the ratio of ref period to annual avg
+    data[i,25] <- pm10_period_ratio * data[i,10] # adjust measurement by period to year ratio
+  }else{
+    pm10_mon_ratio <- data[i,21]/data[i,22] # calculate the ratio of ref mon to annual avg
+    data[i,25] <- pm10_mon_ratio * data[i,10] # adjust measurement by month to year ratio
+    }
+}
+
+# Look for PM10 measures that have a raw measurement but no temporally-adjusted concentration
+sum(!is.na(data$pm10ugm3) & is.na(data$pm10_adj))
+
+
+```
+PM2.5 measures in PCWS started in March 1987, but reference background monitoring didn't start until June 1988. This leaves `r sum(!is.na(data$pm25ugm3) & is.na(data$pm25_adj))` homes without reference values to temporally correct. To correct, we will test to see if we can use the monthly ratio of the closest reference dates from a full monitoring year to fill in March 1987-May 1988 (eg using all of 1989).
+
+``` {r}
+
+pm25_ref_replaceavg <- full_join(pm25_ref_monavg,pm25_ref_yearavg,by=c("year"))
+pm25_ref_replaceavg$ratio <- 0
+pm25_ref_replaceavg$ratio <- pm25_ref_replaceavg$mon/pm25_ref_replaceavg$year
+
+# the ratio is coming out weird - what's up with that?
 
 
 ```
