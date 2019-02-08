@@ -25,11 +25,13 @@ Basic steps:
 However PCWS didn't follow ESCAPE so this is slightly more involved and we will have to make assumptions compared to TAPS.
 
 ```{r Data Setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
 # Clear environment of temporary files
 rm(list=ls())
 
 # Read in packages
 packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2', 'lubridate')
+
 
 package.check <- lapply(packages, FUN = function(x) {
   if (!require(x, character.only = TRUE)) {
@@ -59,7 +61,6 @@ data <- data %>%
          pm25ugm3 = mean(pm25ugm3),
          pm10ugm3 = mean(pm10ugm3))
 
-
 # Assign 1 of 3 season values (Winter, Intermed, Summer)
 data$stssn3 <- ifelse((data$stmon==3 | data$stmon==4 | data$stmon==9 | data$stmon==10), 2,
                      ifelse((data$stmon==1 | data$stmon==2 | data$stmon==11 | data$stmon==12), 1, 3))
@@ -80,14 +81,12 @@ data$stssn4 <- factor(data$stssn4,
 datano2 <- subset(data,!is.na(no2ppb))
 datapm25 <- subset(data,!is.na(pm25ugm3))
 datapm10 <- subset(data,!is.na(pm10ugm3))
-
-
 ```
 
 ######PCWS NO2
 ```{r, echo=FALSE, warning=FALSE}
-data %>%
-  filter(!is.na(no2ppb)) %>%
+
+datano2 %>%
   group_by(styear) %>%
   summarise(n.obs=length(no2ppb),
             n.homes=n_distinct(hhid),
@@ -96,6 +95,7 @@ data %>%
             geosd=exp(sd(log(no2ppb))),
             min=min(no2ppb),
             max=max(no2ppb))
+
 
 data %>%
   filter(!is.na(no2ppb)) %>%
@@ -111,8 +111,8 @@ data %>%
 
 ######PCWS PM2.5
 ```{r, echo=FALSE, warning=FALSE}
-data %>%
-  filter(!is.na(pm25ugm3)) %>%
+
+datapm25 %>%
   group_by(styear) %>%
   summarise(n.obs=length(pm25ugm3),
             n.homes=n_distinct(hhid),
@@ -125,8 +125,8 @@ data %>%
 
 ######PCWS PM10
 ```{r, echo=FALSE, warning=FALSE}
-data %>%
-  filter(!is.na(pm10ugm3)) %>%
+
+datapm10 %>%
   group_by(styear) %>%
   summarise(n.obs=length(pm10ugm3),
             n.homes=n_distinct(hhid),
@@ -146,6 +146,7 @@ data %>%
             geosd=exp(sd(log(pm10ugm3))),
             min=min(pm10ugm3),
             max=max(pm10ugm3))
+
 ```
 Many PCWS homes are measured more than once in a year, but often are measured back to back (one week, then the next). We will use all measures (and correct for changes in air pollution levels over time), as ESCAPE allows for 1-3 or more measures throughout the year (see page 9 and 10 here: http://escapeproject.eu/manuals/ESCAPE_Exposure-manualv9.pdf).
 
@@ -161,7 +162,12 @@ However, before committing to this, we will investigate how many homes have meas
 #   summarise(n_homes = n_distinct(hhid),
 #             n_obs_no2 = n_distinct(no2ppb)) %>%
 #   arrange(desc(n_obs_no2, hhid))
-            
+data %>%
+  filter(!is.na(no2ppb)) %>%
+  dplyr::group_by(hhid,styear, stmon) %>%
+  summarise(n_homes = n_distinct(hhid),
+            n_obs = n_distinct(no2ppb))
+
 datano2 <- datano2 %>%
   dplyr::group_by(hhid,styear) %>%
   mutate(no2_bymonth = n_distinct(stmon))
@@ -173,7 +179,6 @@ datano2 %>%
             n_obs = n_distinct(no2ppb))
 ```
 So for NO2, there are multiple homes in 87-89 with 2 or more measures in the same month and different months in the same year.
-
 
 
 Let's check this same thing for PM2.5.
@@ -303,11 +308,13 @@ datapm10 %>%
 ```
 No homes again for PM10, using 4 season approach.
 
-Let's now look at what homes have a measure in different years...
+Since only NO2 has >1 measure/season or month in more than a handful of homes like PM2.5 and PM10, we'll base our season definition off this. 
 
-Now let's look at whether there are homes that have >=1 NO2 measure IN multiple years.
+**We'll go with the 3 season as this the ESCAPE approach** which we want to follow anyways and there are no difference b/w 3 and 4 month season definitions.
 
-######Homes with 1 or more measures in different MONTHS in the same year over MULTIPLE years for NO2:
+Now let's look at whether there are homes that have >1 NO2 measure in distinct months/year IN multiple years and the same, but for seasons in multiple years.
+
+######Homes with 2 or more measures in different MONTHS in the same year over MULTIPLE years for NO2:
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
 #create frequency of measurement by year and season
@@ -325,9 +332,12 @@ datano2 %>%
 
 There are many homes that have obs in more than 1 year (>1 distinct measure/month).
 
-######NO2 test for how many homes have measures in multiple seasons and multiple years:
+
+######Homes with 2 or more measures in different SEASONS in the same year over MULTIPLE years for NO2:
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
+#create frequency of measurement by year and season
+#no2
 datano2 <- datano2 %>%
   dplyr::group_by(hhid,styear) %>%
   mutate(no2_byseason3 = n_distinct(stssn3))
@@ -618,6 +628,18 @@ pm25_ref_replaceavg$ratio <- pm25_ref_replaceavg$mon/pm25_ref_replaceavg$year
 ```
 
 
+
+Ditto for season!
+
+Now we know that PCWS homes that have >1 measure/year (an ESCAPE inclusion criteria) only have this multiple measures over a single year. This means we can move forward with the outlined idea discussed with group at the Beamer lab meeting on 1/16/19:
+
+1. do annual average only for all homes with >1 measure in 1987, then for all homes with measures in 1988...1992
+2. run GIS predictor development to get year-specific predictors for each yearly dataset, each predictor name should be IDENTICAL
+3. append all these datasets (stack rows)
+4. build LUR for each pollutant
+5. using annual average data, externally validate TAPS model
+
+#### PCWS-Create annual avg for homes with 
 
 #### TAPS Data
 TAPS data is relatively easy to work with and this has already been pulled in with the script TAPS_Data_Cleaning. It does QC and does the annual averages just as ESCAPE did.
