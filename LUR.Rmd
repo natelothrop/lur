@@ -654,7 +654,10 @@ To fill in the unknown monthly ratios for PM2.5 from March 1987 - May 1988, we'l
 
 
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 484f471aac259fcfc065e6973f2e4bb01b62c6e2
 Ditto for season!
 
 Now we know that PCWS homes that have >1 measure/year (an ESCAPE inclusion criteria) only have this multiple measures over a single year. This means we can move forward with the outlined idea discussed with group at the Beamer lab meeting on 1/16/19:
