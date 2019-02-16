@@ -24,8 +24,7 @@ Basic steps:
 
 However PCWS didn't follow ESCAPE so this is slightly more involved and we will have to make assumptions compared to TAPS.
 
-```{r Data Setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
-```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+```{r echo=FALSE, results='hide', message=FALSE, warning=FALSE}
 # Clear environment of temporary files
 rm(list=ls())
 
@@ -440,7 +439,7 @@ summary(pm10_ref$pm10_ref)
 Summary values all make sense. The very high PM10 values all have description qualifiers on them in the raw data noting high wind events (eg dust storms), which are a known issue in this area that will push Pima County to violate PM10 NAAQS standards. Next step is to merge together by start date to relevant pollutant.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
-
+read.data <- function(){
 #read in all p5 data
 p5all<- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results/P5_Master.csv")
 
@@ -483,7 +482,7 @@ data$stssn4 <- factor(data$stssn4,
 datano2 <- subset(data,!is.na(no2ppb))
 datapm25 <- subset(data,!is.na(pm25ugm3))
 datapm10 <- subset(data,!is.na(pm10ugm3))
-
+}
 
 ```
 
@@ -612,11 +611,12 @@ for(i in 1:nrow(data)){
 # Look for PM10 measures that have a raw measurement but no temporally-adjusted concentration
 sum(!is.na(data$pm10ugm3) & is.na(data$pm10_adj))
 
-
 ```
+
+##### Missing PM2.5 Ref Monitor Data
 PM2.5 measures in PCWS started in March 1987, but reference background monitoring didn't start until June 1988. This leaves `r sum(!is.na(data$pm25ugm3) & is.na(data$pm25_adj))` homes without reference values to temporally correct. To correct, we will test to see if we can use the monthly ratio of the closest reference dates from a full monitoring year to fill in March 1987-May 1988 (eg using all of 1989).
 
-``` {r}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
 pm25_ref_replaceavg <- full_join(pm25_ref_monavg,pm25_ref_yearavg,by=c("year"))
 pm25_ref_replaceavg$ratio <- 0
@@ -644,31 +644,44 @@ The pearson correlations of month to month ratios for years of 89 to 90, 90 to 9
 
 This shows that month to year variation between years is wide!
 
-To fill in the unknown monthly ratios for PM2.5 from March 1987 - May 1988, we'll use the 1989 ratios for now. We can ask this question in lab meeting...
+Let's see if we can impute PM2.5 based on the PM10 for that year by looking at this relationship in other years.
 
-```{r}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Join monthly and yearly averages of reference monitors to measurement data
+ref_data <- full_join(no2_ref_monavg,no2_ref_yearavg,by=c("year"="year"))
+ref_data <- full_join(ref_data,pm25_ref_monavg,by=c("year"="year","mon"="mon"))
+ref_data <- full_join(ref_data,pm25_ref_yearavg,by=c("year"="year"))
+ref_data <- full_join(ref_data,pm10_ref_monavg,by=c("year"="year","mon"="mon"))
+ref_data <- full_join(ref_data,pm10_ref_yearavg,by=c("year"="year"))
 
+ref_data <- ref_data %>%
+  mutate(no2_mon_ratio = no2_mon_avg/no2_year_avg,
+         pm25_mon_ratio = pm25_mon_avg/pm25_year_avg,
+         pm10_mon_ratio = pm10_mon_avg/pm10_year_avg,
+         no2_mon_ratio_sqd = no2_mon_ratio*no2_mon_ratio,
+         pm10_mon_ratio_sqd = pm10_mon_ratio*pm10_mon_ratio)
 
+summary(lm(pm25_mon_ratio~
+             no2_mon_ratio + 
+             pm10_mon_ratio,
+           data=filter(ref_data,year<=1992)))
 
 ```
 
+There are simply not enough data points to impute or rather extrapolate on the early end of PM2.5 data. As per discussion with Paloma on 2/13/19 in office hours, we'll simply exclude these data that do not have a reference background monitor (ie anything before June 1988).
 
+We will continue creating the annual average for each household to be used as the outcome in the linear regressions.
 
-<<<<<<< HEAD
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
-=======
->>>>>>> 484f471aac259fcfc065e6973f2e4bb01b62c6e2
-Ditto for season!
+pcws_lur_data <- data %>%
+  group_by(hhid,styear) %>%
+  summarise(no2_adj=mean(no2_adj),
+            pm25_adj=mean(pm25_adj),
+            pm10_adj=mean(pm10_adj)) %>%
+  mutate(hhid_x=paste0(hhid,"_A"))
+```
 
-Now we know that PCWS homes that have >1 measure/year (an ESCAPE inclusion criteria) only have this multiple measures over a single year. This means we can move forward with the outlined idea discussed with group at the Beamer lab meeting on 1/16/19:
-
-1. do annual average only for all homes with >1 measure in 1987, then for all homes with measures in 1988...1992
-2. run GIS predictor development to get year-specific predictors for each yearly dataset, each predictor name should be IDENTICAL
-3. append all these datasets (stack rows)
-4. build LUR for each pollutant
-5. using annual average data, externally validate TAPS model
-
-#### PCWS-Create annual avg for homes with 
 
 #### TAPS Data
 TAPS data is relatively easy to work with and this has already been pulled in with the script TAPS_Data_Cleaning. It does QC and does the annual averages just as ESCAPE did.
