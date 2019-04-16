@@ -1,11 +1,13 @@
-# Aim of script is to create spatial analysis variables using ESCAPE methods in R
+# Aim of script is to create temporally-matched (where data available and appropriate) 
+# land use regression predictors for a cohort of interest using ESCAPE approaches
+
 # Be aware polygon-based analyses will take <1 hour to run
+
 # Coding is done for Mac-based paths
 
 # Please update the following based on which dataset you're doing GIS analyses for:
-# 1. Set your Prediction Year!
-# 1. - Run either the PCWS or TAPS "Load....Addresses" code block
-# 2. - Set working drives 
+# 1. - Set your cohort! (eg, Tucson Air Pollution Study = 'TAPS' -OR- Pima County Workers Study = 'P5')
+# 2. - Set prediction year! (eg, for 2015, put 2015)
 
 
 # Clear environment of temporary files
@@ -15,8 +17,9 @@ rm(list=ls())
 # Cohort <- 'TAPS'
 Cohort <- 'P5'
 
-# Set your prediction year of interest!
-Prediction_Year <- 1987
+# Set your prediction year of interest! 
+#NOTE - the most recent year this is built for is 2015!
+Prediction_Year <- 1991
 
 #### Loading Packages ####
 
@@ -36,7 +39,10 @@ package.check <- lapply(packages, FUN = function(x) {
 
 P5_read_addrs <- function(addrs){
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results")
-  results <- read.csv("P5_Master.csv")
+  results <- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results/P5_Master.csv")
+  results$hhidx <- 'A'
+  results$hhid_x <- paste(results$hhid, results$hhidx, sep="_") #make unique address ID
+  
   
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Shapefiles")
   addrs <- st_read("P5_Addresses.shp", stringsAsFactors = F)
@@ -45,7 +51,7 @@ P5_read_addrs <- function(addrs){
   addrs <- subset(addrs, select = c(hhid, hhidx, hhid_x))
   addrs$hhid_x <- paste(addrs$hhid, addrs$hhidx, sep="_") #make unique address ID
   
-  addrs <- left_join(addrs,results, by = c("hhid", "hhidx"))
+  addrs <- inner_join(addrs,results, by = c("hhid_x"))
   
   # This keeps only those unique household ids that start in the prediction year if during P5, otherwise, all unique household IDs are kept
   ifelse((Prediction_Year>=1987 & Prediction_Year<=1992), 
@@ -83,8 +89,7 @@ ifelse(Cohort == "P5", addrs <- P5_read_addrs(),
        ifelse(Cohort == "TAPS", addrs <- TAPS_read_addrs(),
               print("Check your cohorts and that they are either 'P5' or 'TAPS'")))
 
-#### Load/Prep Shapefiles ####
-
+#### Load/Prep Shapefiles (Geocoding Needed) ####
 # Geocode cement plant
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
 cementplants <- read.csv("CementPlants.csv")
@@ -117,6 +122,9 @@ busdepots <- SpatialPointsDataFrame(coords = busdepots[,c("lon","lat")], data = 
 
 writeOGR(busdepots, dsn = ".", layer = "BusDepots" ,driver = "ESRI Shapefile")
 
+#### Load/Prep Shapefiles ####
+
+# Script to read and project shapefiles
 shape_input <- function(shp_name) {
   setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
   st_read(shp_name, stringsAsFactors = F) %>%
@@ -125,27 +133,46 @@ shape_input <- function(shp_name) {
     st_transform(crs = 2868)
 }
 
-air <- shape_input("Airrunway_1.shp")
-busrt <- shape_input("busroute_1.shp")
-busstops <- shape_input("busstops.shp")
+# Selects the appropriate land use dataset file year to read
+ifelse(Prediction_Year<=1997, lu <- shape_input("nlcd1992.shp"),
+       ifelse(Prediction_Year>1997 & Prediction_Year<=2003, lu <- shape_input("nlcd2001.shp"),
+              ifelse(Prediction_Year>2003 & Prediction_Year<=2008, lu <- shape_input("nlcd2006.shp"),
+                     lu <- shape_input("nlcd2011_pimaclippolygon.shp"))))
 
 # Selects the appropriate census file year to read
-census <- ifelse(Prediction_Year>1976 & Prediction_Year<1985, shape_input("Tracts1980.shp"),
-                 ifelse(Prediction_Year>1986 & Prediction_Year<1995, shape_input("Tracts1990.shp"),
-                        ifelse(Prediction_Year>1996 & Prediction_Year<2005, shape_input("Tracts2000.shp"), 
-                               shape_input("Tracts2010.shp"))))
+ifelse(Prediction_Year>1976 & Prediction_Year<1985, census <- shape_input("Tracts1980.shp"),
+       ifelse(Prediction_Year>1986 & Prediction_Year<1995, census <- shape_input("Tracts1990.shp"),
+              ifelse(Prediction_Year>1996 & Prediction_Year<2005, census <- shape_input("Tracts2000.shp"), 
+                     census <- shape_input("Tracts2010.shp"))))
+
+# Selects the appropriate Time-integrated NDVI (TIN) file year to read
+# Note - as of Feb. 2019, TIN only available till 2013, so any later years default to 2013 values
+ifelse(Prediction_Year<=2013, 
+       tin <- shape_input(as.character(paste0("ndvi_tin_",Prediction_Year,".shp"))),
+       tin <- shape_input("ndvi_tin_2013.shp"))
+
+# Reads various shapefiles with any yearly changes denoted in file fields
+air <- shape_input("Airrunway_1.shp")
+busrt <- shape_input("busroute_1.shp")
+
+# NOTE - busstops is built by doing 'Spatial Join' in ArcGIS 10.4.1; 
+# with bus stops from Pima GIS as Target Feature and bus routes from Pima GIS as Join Feature;
+# joining one to many (one point to many lines), within a distance of 250 feet
+busstops <- shape_input("busstops_busroutes.shp") 
+
+# Filter for only those features present in prediction year
+# The bus route shapefile is VERY limited, with only to Sun Tran routes in Tucson
+# Many bus stops are nowhere near routes, thus, these aren't given any joining values for routes
+# As a result many have start years (styear) of 0, which we will assume began in 1977, the earliest verifiable value of any route
+# Note - Many old stop points around the transit centers were manually deleted in ArcGIS
+busstops <- busstops %>%
+  mutate(styear = ifelse(styear == 0, 1977, styear)) %>%
+  filter(Prediction_Year >= styear & Prediction_Year < endyear)
 
 mines <- shape_input("mines_1.shp")
 rail <- shape_input("railroad_1.shp")
 railyard <- shape_input("railroad_yardcentroid_1.shp")
 roads <- shape_input("Roads_v20170728.shp")
-
-# Selects the appropriate land use dataset file year to read
-lu <- ifelse(Prediction_Year<=1997, shape_input("nlcd1992.shp"),
-                        ifelse(Prediction_Year>1997 & Prediction_Year<=2003, shape_input("nlcd2001.shp"),
-                            ifelse(Prediction_Year>2003 & Prediction_Year<=2008, shape_input("nlcd2006.shp"), 
-                               shape_input("nlcd2011_pimaclippolygon.shp"))))
-
 landfills <- shape_input("lfil_ex.shp")
 cmntplant <- shape_input("CementPlants.shp")
 tepplant <- shape_input("tep_station.shp")
@@ -158,9 +185,7 @@ busdepots <- shape_input("BusDepots.shp")
 # Drop developments with no units listed
 histdev <- filter(histdev, UNITS>0)
 
-# Drop bus stops that are inactive
-busstops <- filter(busstops, InService==1)
-
+# Create a transit center predictor
 trnscenters <- filter(busstops, 
                       StopName=="SS/Laos Transit Center" |
                       StopName=="SS/Downtown Ronstadt Center" |
@@ -174,21 +199,23 @@ tia <- filter(air, NAME == "TUCSON INTERNATIONAL AIRPORT")
 vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( vehtype ) )  ]
 
 # Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
+# This includes changing truck counts into percents; updating older road counts into true vehicle counts (not in thousands)
 vehtype <- vehtype %>%
-  mutate(TD80=(F80__T + F80__Truck) * VD80,
-         TD81=(F81__T + F81__Truck) * VD81,
-         TD82=(F82__T + F82__Truck) * VD82,
-         TD83=(F83__T + F83__Truck) * VD83,
-         TD84=(F84__T + F84__Truck) * VD84,
-         TD85=(F85__T + F85__Truck) * VD85,
-         TD86=(F86__T + F86__Truck) * VD86,
-         TD87=(F87__T + F87__Truck) * VD87,
-         TD88=(F88__T + F88__Truck) * VD88,
-         TD89=F89__T * VD89,
-         TD90=F90__T * VD90,
-         TD91=F91__T * VD91,
-         TD92=F92__T * VD92,
-         TD15=(F10__S + F10__C)/100 * VD15)
+  mutate(TD80=(F80__T + F80__Truck)/100 * VD80 * 1000,
+         TD81=(F81__T + F81__Truck)/100 * VD81 * 1000,
+         TD82=(F82__T + F82__Truck)/100 * VD82 * 1000,
+         TD83=(F83__T + F83__Truck)/100 * VD83 * 1000,
+         TD84=(F84__T + F84__Truck)/100 * VD84 * 1000,
+         TD85=(F85__T + F85__Truck)/100 * VD85 * 1000,
+         TD86=(F86__T + F86__Truck)/100 * VD86 * 1000,
+         TD87=(F87__T + F87__Truck)/100 * VD87 * 1000,
+         TD88=(F88__T + F88__Truck)/100 * VD88 * 1000,
+         TD89=F89__T/100 * VD89 * 1000,
+         TD90=F90__T/100 * VD90 * 1000,
+         TD91=F91__T/100 * VD91 * 1000,
+         TD92=F92__T/100 * VD92 * 1000,
+         TD15=(F10__S + F10__C)/100 * VD15) %>%
+  dplyr::select(starts_with('TD')) # Drop all other fields except for the trucks/day fields (TD##)
 
 # Remove schools from list that are not part of district that provides bus services
 schools <- subset(schools, !is.na(SDISTNAME))
@@ -217,7 +244,7 @@ roads <- roads %>%
          VD93=VD93*1000,
          VD94=VD94*1000)
 
-# Define Roads and VD Field from Prediction Year
+# Define Roads and VD (vehicles/day) Field from Prediction Year
 vd_field <- paste0('VD',as.numeric(substr(as.character(Prediction_Year), 3,4)))
 
 roads_field <- as.character(paste0('roads$', vd_field))
@@ -227,9 +254,15 @@ mroads_field <- as.character(paste0('mroads$', vd_field))
 
 mroads <- subset(roads, eval(parse(text=roads_field))>5000) #5000 roads is based on ESCAPE
 
+# Define Vehicle Type TD (trucks/day) Field from Prediction Year
+td_field <- paste0('TD',as.numeric(substr(as.character(Prediction_Year), 3,4)))
+
+vehtype_field <- as.character(paste0('vehtype$', td_field))
+
+
 # Sets up directory to save predictors into using cohort name and prediction year
 mainDir <- "/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP"
-subDir <- "/Data/LUR/Predictors"
+subDir <- "Data/LUR/Predictors"
 Prediction_Year_Folder <- as.character(Prediction_Year)
 
 if (file.exists(Prediction_Year_Folder)){
@@ -239,7 +272,8 @@ if (file.exists(Prediction_Year_Folder)){
   setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
 }
 
-#### Elevation predictor ####
+
+#### Elevation Predictor ####
 setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
 elev_rast <- raster("dem.tif")
 crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
@@ -249,13 +283,15 @@ elev_rast <- projectRaster(elev_rast, crs=crs_raster)
 
 addrs$elev <- raster::extract(elev_rast, as(addrs, "Spatial"), method='bilinear', df = F)
 
-addrs$elev <- sqrt(addrs$elev)
-
-elev <- subset(addrs, select = c(hhid_x, elev))
-
-elev <- filter(elev, !is.na(elev))
+elev <- addrs %>%
+  filter(!is.na(elev)) %>%
+  mutate(evel = sqrt(elev),
+         styear = eval(Prediction_Year)) %>%
+  dplyr::select(hhid_x, elev, styear)
 
 st_geometry(elev) <- NULL
+
+addrs$elev <- NULL
 
 if (file.exists(Prediction_Year_Folder)){
   setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
@@ -266,195 +302,63 @@ if (file.exists(Prediction_Year_Folder)){
 
 write.csv(elev, "elev.csv",row.names = F)
 
-addrs$elev <- NULL
+#### CALINE3-Modeled Average Annual PM2.5 Predictor ####
+
+# Based on cohort and prediction year, read in correct ExposureForAllIndividuals.csv
+ifelse((Cohort == "P5" & Prediction_Year>=1987 & Prediction_Year<=1992), 
+       caline <- read.csv(file="/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/CALINE3/1987_1992/ExposureForAllIndividuals.csv", header = T),
+       ifelse((Cohort == "TAPS" & Prediction_Year>=1987 & Prediction_Year<=1992),
+              caline <- read.csv(file="/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/1987_1992/ExposureForAllIndividuals.csv", header = T),
+              ifelse((Cohort == "P5" & Prediction_Year>=2010),
+                     caline <- read.csv(file="/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/CALINE3/2010/ExposureForAllIndividuals.csv", header = T),
+                     ifelse((Cohort == "TAPS" & Prediction_Year>=2010),
+                            caline <- read.csv(file="/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010/ExposureForAllIndividuals.csv", header = T),
+                            print("Dataset or CALINE3 year not found")))))
+
+# Update CALINE output file
+caline <- caline %>%
+  filter(!is.na(CRSID)) %>%
+  group_by(CRSID, Year) %>% # Average total PM2.5 by year
+  summarise(caline_pm25 = mean(Total)) %>% 
+  filter(Year == ifelse(eval(Prediction_Year)>=2010, 2010, eval(Prediction_Year))) # Filter for only those that match prediction year
+
+# Merge to addrs, keeping only matching CALINE values
+caline <- caline %>%
+  mutate(hhid_x = ifelse(Cohort == 'P5', paste0(CRSID,"_A"), as.character(CRSID)))# create hhid_x merge field
+
+caline <- caline %>%
+  ungroup() %>%
+  inner_join(addrs, caline, by=c("hhid_x")) %>%
+  mutate(styear = eval(Prediction_Year)) %>%
+  dplyr::select(hhid_x, caline_pm25, styear) # Keep only hhid_x and CALINE predicted PM2.5 value
+
+write.csv(caline, "caline.csv", row.names = F)
+
+
+#### Coordinate-based XY Predictors ####
+
+coords <- addrs %>%
+  mutate(Xcoord = st_coordinates(addrs)[,1],
+         Ycoord = st_coordinates(addrs)[,2],
+         XplusY = Xcoord + Ycoord,
+         XminusY = Xcoord - Ycoord,
+         styear = eval(Prediction_Year)) %>%
+  dplyr::select(hhid_x, Xcoord, Ycoord, XplusY, XminusY, styear)
+
+st_geometry(coords) <- NULL
+
+write.csv(coords, "coords.csv", row.names = F)
 
 
 
-#### Polygon areal predictors (census, land use, housing development history) ####
-
-#Land uses weighted to area
-abuffdists <- c(5000, 1000, 500, 300, 100)
-
-intx_lu_1992 <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/1992")
-  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
-  intx <- intx %>%
-    mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
-  
-  intx$GRIDCODE<-as.character(intx$GRIDCODE)
-  
-  intx$luc <- ifelse(intx$GRIDCODE=='21', "lr",
-                     ifelse(intx$GRIDCODE=='22', "hr",
-                            ifelse(intx$GRIDCODE=='23', "cm",
-                                   ifelse(intx$GRIDCODE=='85', "ug",
-                                          ifelse(intx$GRIDCODE=='11' |
-                                                   intx$GRIDCODE=='12' |
-                                                   intx$GRIDCODE=='31' |
-                                                   intx$GRIDCODE=='33' |
-                                                   intx$GRIDCODE=='41' |
-                                                   intx$GRIDCODE=='42' |
-                                                   intx$GRIDCODE=='43' |
-                                                   intx$GRIDCODE=='51' |
-                                                   intx$GRIDCODE=='61' |
-                                                   intx$GRIDCODE=='71' |
-                                                   intx$GRIDCODE=='91' |
-                                                   intx$GRIDCODE=='92', "nt",
-                                                 ifelse(intx$GRIDCODE=='61' |
-                                                          intx$GRIDCODE=='81' |
-                                                          intx$GRIDCODE=='82' |
-                                                          intx$GRIDCODE=='83' |
-                                                          intx$GRIDCODE=='84', "ag", "xx"))))))
-  
-  intx <- intx %>%
-    group_by(hhid_x, luc) %>%
-    summarise(area = sum(Shape_Area))
-  
-  st_geometry(intx) <- NULL
-  
-  intx <- spread(intx, luc, area)
-  
-  names(intx)[names(intx)=="lr"] <- paste0("lu_lr_",as.character(abuffdists))
-  names(intx)[names(intx)=="hr"] <- paste0("lu_hr_",as.character(abuffdists))
-  names(intx)[names(intx)=="cm"] <- paste0("lu_cm_",as.character(abuffdists))
-  names(intx)[names(intx)=="ug"] <- paste0("lu_ug_",as.character(abuffdists))
-  names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
-  names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
-  
-  write.csv(intx, paste0("lu_1992_",as.character(abuffdists),".csv"),row.names = F)
-}
-
-
-intx_lu_2011 <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Grid/LUPredictors/2011")
-  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
-  intx <- intx %>%
-    mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
-  
-  intx$GRIDCODE<-as.character(intx$GRIDCODE)
-  
-  intx$luc <- ifelse(intx$GRIDCODE=='22' | intx$GRIDCODE=='23', "lr",
-                     ifelse(intx$GRIDCODE=='24', "hr",
-                            ifelse(intx$GRIDCODE=='21', "ug",
-                                   ifelse(intx$GRIDCODE=='11' |
-                                            intx$GRIDCODE=='12' |
-                                            intx$GRIDCODE=='31' |
-                                            intx$GRIDCODE=='41' |
-                                            intx$GRIDCODE=='42' |
-                                            intx$GRIDCODE=='43' |
-                                            intx$GRIDCODE=='51' |
-                                            intx$GRIDCODE=='52' |
-                                            intx$GRIDCODE=='71' |
-                                            intx$GRIDCODE=='43' |
-                                            intx$GRIDCODE=='90' |
-                                            intx$GRIDCODE=='95', "nt",
-                                          ifelse(intx$GRIDCODE=='81' |
-                                                   intx$GRIDCODE=='82', "ag", "xx")))))
-  
-  intx <- intx %>%
-    group_by(hhid_x, luc) %>%
-    summarise(area = sum(Shape_Area))
-  
-  st_geometry(intx) <- NULL
-  
-  intx <- spread(intx, luc, area)
-  
-  names(intx)[names(intx)=="lr"] <- paste0("lu_lr_",as.character(abuffdists))
-  names(intx)[names(intx)=="hr"] <- paste0("lu_hr_",as.character(abuffdists))
-  names(intx)[names(intx)=="ug"] <- paste0("lu_ug_",as.character(abuffdists))
-  names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
-  names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
-  
-  write.csv(intx, paste0("lu_2011_",as.character(abuffdists),".csv"),row.names = F)
-}
-
-predictors <- list("lu" = lu)
-
-mapply(FUN = intx_lu_1992, predictors, abuffdists)
-
-
-#Census population and households weighted to area
-abuffdists <- c(5000, 1000, 500, 300, 100)
-
-intx_census <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
-  if (nrow(intx)>0) {
-    intx <- intx %>%
-      mutate(intx_area = st_area(intx),
-             hh_intx_area = HHOLD * intx_area,
-             pop_intx_area = POP * intx_area) %>%
-      group_by(hhid_x) %>%
-      mutate(full_area = sum(intx_area),
-             full_hh_wtd = sum(hh_intx_area),
-             full_pop_wtd = sum(pop_intx_area),
-             hh_wtd = full_hh_wtd/full_area,
-             pop_wtd = full_pop_wtd/full_area)
-    
-    hh <- data.frame(intx)
-    
-    hh <- hh %>% 
-      distinct(hhid_x, hh_wtd)
-    
-    names(hh)[2] <- paste0("hh_",as.character(abuffdists))
-    write.csv(hh, paste0("hh_",as.character(abuffdists),".csv"),row.names = F)
-    
-    
-    pop <- data.frame(intx)
-    
-    pop <- pop %>% 
-      distinct(hhid_x, pop_wtd)
-    
-    names(pop)[2] <- paste0("pop_",as.character(abuffdists))
-    write.csv(pop, paste0("pop_",as.character(abuffdists),".csv"),row.names = F)
-    
-    
-  } else {
-    print("hhpop_",as.character(abuffdists)," had no intersections")
-  }
-}
-
-predictors <- list("census" = census)
-mapply(FUN = intx_census, predictors, abuffdists)
-
-
-#Historic housing development planned units weighted to buffer area
-# only current to 2015 as of 10/12/18, so for TAPS, no need to cut by year
-abuffdists <- c(5000, 1000, 500, 300, 100)
-
-intx_histdev <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
-  if (nrow(intx)>0) {
-    intx <- intx %>%
-      mutate(histdev_sum = sum(UNITS))
-
-    hd <- data.frame(rowsum(x = intx$histdev_sum, group = intx$hhid_x))
-    hd$hhid_x <- row.names(hd)
-    names(hd)[1] <- paste0("hd_",as.character(abuffdists))
-    rownames(hd) <- c()
-    write.csv(hd, paste0("hd_",as.character(abuffdists),".csv"),row.names = F)
-    
-    
-  } else {
-    print("histdev_",as.character(abuffdists)," had no intersections")
-  }
-}
-
-predictors <- list("histdev" = histdev)
-mapply(FUN = intx_histdev, predictors, abuffdists)
-
-#Time-Integrated NDVI:TIN	
+#### Time-Integrated NDVI (TIN) Predictor ####
 #Canopy photosynthetic activity across the entire growing season (interpolated NDVI).
-
-abuffdists <- c(5000, 1000, 500, 300, 100)
-
 intx_tin <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
   if (nrow(intx)>0) {
     intx <- intx %>%
       mutate(intx_area = st_area(intx),
-             tin_intx_area = av_TOTND2013v4 * intx_area) %>%
+             tin_intx_area = tin * intx_area) %>%
       group_by(hhid_x) %>%
       mutate(full_area = sum(intx_area),
              full_tin_wtd = sum(tin_intx_area),
@@ -466,6 +370,9 @@ intx_tin <- function(p,abuffdists,i){
       distinct(hhid_x, tin_wtd)
     
     names(tin)[2] <- paste0("tin_",as.character(abuffdists))
+    
+    tin$styear <- Prediction_Year
+    
     write.csv(tin, paste0("tin_",as.character(abuffdists),".csv"),row.names = F)
     
   } else {
@@ -473,15 +380,14 @@ intx_tin <- function(p,abuffdists,i){
   }
 }
 
-predictors <- list("ndvi" = ndvi_poly)
+abuffdists <- c(5000, 1000, 500, 300, 100)
+predictors <- list("tin" = tin)
 mapply(FUN = intx_tin, predictors, abuffdists)
 
-#### Point areal predictors (Bus stops) ####
+#### Point-based Areal Predictors ####
 
 abuffdists <- c(5000, 1000, 500, 300, 100)
-
 intx_pts_inarea <- function(p,abuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
   if (nrow(intx)>0) {
     intx <- intx %>%
@@ -494,6 +400,9 @@ intx_pts_inarea <- function(p,abuffdists,i){
       distinct(hhid_x, pts_sum)
     
     names(intx)[2] <- paste0(names(predictors)[i],"_",as.character(abuffdists))
+    
+    intx$styear <- eval(Prediction_Year)
+    
     write.csv(intx, paste0(names(predictors)[i],"_",as.character(abuffdists),".csv"),row.names = F)
     
   } else {
@@ -501,64 +410,198 @@ intx_pts_inarea <- function(p,abuffdists,i){
   }
 }
 
-predictors <- list("busstops" = busstops)
-mapply(FUN = intx_pts_inarea, predictors, abuffdists)
-
 predictors <- list("schools" = schools)
 mapply(FUN = intx_pts_inarea, predictors, abuffdists)
 
-#### Line length of sources without vehicle loading in buffers (bus routes, rail lines) ####
+# Total bus stops in area
+# Total bus stops can be thought of as the total number of bus lines that stop at a location
+# For example, if 2 bus lines stop at a location, there will be 2 point features at that location (one for each line)
+predictors <- list("busstops" = busstops)
+mapply(FUN = intx_pts_inarea, predictors, abuffdists)
 
-# line in area buffer distances (rail, bus route, road)
-lbuffdists <- c(25, 50, 100, 300, 500, 1000)
 
-#Intersecting line sources without vehicle loading (rail, bus routes)
+
+#### Nearest Point/Polygon Predictors - No Time Component ####
+
+nearest_poly_pt <- function(p,i){
+  d <- st_distance(addrs, p)
+  min.d <- apply(d, 1, function(x) sort(x)[1])
+  min.d_df <- data.frame(numeric(nrow(addrs)))
+  min.d_df$dist <- min.d * 0.3048
+  min.d_df[1] <- NULL
+  
+  addrsdf <- as.data.frame(addrs)
+  predictor_nr <- cbind(addrsdf, min.d_df)
+  predictor_nr <- subset(predictor_nr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
+  
+  names(predictor_nr)[2]<-"NRDistM"
+  
+  predictor_nr$distintvpred1<-1/predictor_nr$NRDistM
+  predictor_nr$distintvpred2<-(1/predictor_nr$NRDistM)^2
+  
+  predictor_nr$NRDistM<-NULL
+  
+  names(predictor_nr)[2]<-paste0("distintv",names(predictors)[i],"1")
+  names(predictor_nr)[3]<-paste0("distintv",names(predictors)[i],"2")
+  
+  predictor_nr$styear <- eval(Prediction_Year)
+  
+  
+  if (file.exists(Prediction_Year_Folder)){
+    setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
+  } else {
+    dir.create(file.path(mainDir, Cohort, subDir, Prediction_Year))
+    setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
+  }
+  
+  write.csv(predictor_nr, paste0(names(predictors)[i],"_nr.csv"),row.names = F)
+  
+}
+
+# Distance to nearest landfill
+predictors <- list("landfills" = landfills)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest airport runway
+predictors <- list("air" = air)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to Davis-Monthan AFB
+predictors <- list("dmafb" = dmafb)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to Tucson International Airport
+predictors <- list("tia" = tia)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest active surface mine
+predictors <- list("mines" = mines)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest Sun Tran transit center
+predictors <- list("trnscenters" = trnscenters)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to rail yard
+predictors <- list("railyard" = railyard)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to TEP Generating Station off I10, Tucson
+predictors <- list("tepplant" = tepplant)
+mapply(FUN = nearest_poly_pt, predictors)
+
+# Distance to nearest school
+predictors <- list("schools" = schools)
+mapply(FUN = nearest_poly_pt, predictors)
+
+
+
+#### Nearest Point/Polygon Predictors - With Time Component ####
+
+
+
+# Distance to nearest active Sun Tran bus stop
+predictors <- list("busstops" = busstops)
+mapply(FUN = nearest_poly_pt, predictors)
+
+
+# Distance to nearest bus maintenance depot
+# Filter for only those features present in prediction year
+# 1992 is the oldest satellite image verifiable year, all features in 1992 assumed to be there prior
+busdepots <- busdepots %>%
+  mutate(styear = ifelse(Prediction_Year<=1992, 1980, StartYr), 
+         endyear = EndYear) %>%
+  filter(Prediction_Year >= styear & Prediction_Year < endyear)
+
+predictors <- list("busdepots" = busdepots)
+mapply(FUN = nearest_poly_pt, predictors)
+
+
+# Distance to nearest cement plant
+# Filter for only those features present in prediction year
+# 1992 is the oldest satellite image verifiable year, all features in 1992 assumed to be there prior
+cmntplant <- cmntplant %>%
+  mutate(styear = ifelse(Prediction_Year<=1992, 1980, StartYr), 
+         endyear = EndYear) %>%
+  filter(Prediction_Year >= styear & Prediction_Year < endyear)
+
+predictors <- list("cmntplant" = cmntplant)
+mapply(FUN = nearest_poly_pt, predictors)
+
+
+
+
+# # # # Line-based Predictors # # # #
+
+#### Line Length in Buffer Predictors - No Vehicle Loading ####
+
+# line in area buffer distances
+lbuffdists <- c(1000, 500, 300, 100, 50, 25)
+
 intx_novehicles <- function(p,lbuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
   if (nrow(intx)>0) {
-    intx <- aggregate(x = intx$Shape_Leng, by = list(intx$hhid_x), FUN = sum, drop = T)
-    names(intx)[1]<-"hhid_x"
-    names(intx)[2]<-paste0(names(predictors)[i],"_l_",as.character(lbuffdists))
-    intx[2] <- intx[2] * 0.3048
-    write.csv(intx, paste0(names(predictors)[i],"_l_",as.character(lbuffdists),".csv"),row.names = F)
+    intx <- intx %>%
+      mutate(roadlength = (st_length(intx) * 0.3048))#NOTE dividing to convert to length from ft to meters
+    
+    # Road (line) length
+    rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
+    rl$hhid_x <- row.names(rl)
+    names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
+    rownames(rl) <- c()
+    
+    rl$styear <- Prediction_Year
+    
+    write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
+    
   } else {
-    print(paste0(names(predictors)[i],"_l_",as.character(lbuffdists)," had no intersections"))
+    print(paste0(names(predictors)[i],"_rl_",as.character(lbuffdists)," had no intersections"))
   }
 }
 
+# Length of bus routes within buffer
+# Filter for only those routes present in prediction year
+busrt <- busrt %>%
+  filter(Prediction_Year >= styear & Prediction_Year < endyear)
 predictors <- list("busrt" = busrt)
 mapply(FUN = intx_novehicles, predictors, lbuffdists)
+
+# Length of rail lines within buffer
 predictors <- list("rail" = rail)
 mapply(FUN = intx_novehicles, predictors, lbuffdists)
 
 
 
-#### Line length and traffic loading of sources with vehicle loading (major roads, roads)####
+#### Line Length in Buffer Predictors - With Vehicle or Speed Loading ####
 
-# line in area buffer distances (rail, bus route, road)
-lbuffdists <- c(25, 50, 100, 300, 500, 1000)
 
+# Intersection of roads with any type of vehicle loadings
 intx_vehicles <- function(p,lbuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
   intx <- st_cast(intx, "MULTILINESTRING")
   if (nrow(intx)>0) {
     intx <- intx %>%
       mutate(roadlength = (st_length(intx) * 0.3048)) %>% #NOTE dividing to convert to length from ft to meters
-      mutate(trafload = ifelse(VD15 == 0, 500, VD15) * (st_length(intx) * 0.3048)) #NOTE this is built from VD15 values and roads with no counts ("0") are subbed with 500 as per ESCAPE
+      mutate(trafload = (ifelse(eval(parse(text=vd_field)) == 0, 500, eval(parse(text=vd_field)))) * (st_length(intx) * 0.3048)) #NOTE roads with no counts ("0") are subbed with 500 as per ESCAPE
     
+    # Road (line) length
     rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
     rl$hhid_x <- row.names(rl)
     names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
     rownames(rl) <- c()
+    
+    rl$styear <- Prediction_Year
+    
     write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
     
-    
+    # Traffic load
     tl <- data.frame(rowsum(x = intx$trafload, group = intx$hhid_x))
     tl$hhid_x <- row.names(tl)
     names(tl)[1] <- paste0(names(predictors)[i],"_tl_",as.character(lbuffdists))
     rownames(tl) <- c()
+    
+    tl$styear <- Prediction_Year
+    
     write.csv(tl, paste0(names(predictors)[i],"_tl_",as.character(lbuffdists),".csv"),row.names = F)
     
   } else {
@@ -566,89 +609,90 @@ intx_vehicles <- function(p,lbuffdists,i){
   }
 }
 
+# line in area buffer distances
+lbuffdists <- c(1000, 500, 300, 100, 50, 25)
+
+# Road length and traffic load for major roads (as per ESCAPE, roads>5000 veh/day) within buffers
 predictors <- list("mroads" = mroads)
 mapply(FUN = intx_vehicles, predictors, lbuffdists)
+
+# Road length and traffic load for all roads within buffers
 predictors <- list("roads" = roads)
 mapply(FUN = intx_vehicles, predictors, lbuffdists)
 
-# line in area buffer distances (rail, bus route, road)
-lbuffdists <- c(25, 50, 100, 300, 500, 1000)
-
+# Intersection of roads with heavy vehicle type (single and combo trucks) loadings only
 intx_heavyvehicles <- function(p,lbuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
   intx <- st_cast(intx, "MULTILINESTRING")
   if (nrow(intx)>0) {
+    
     intx <- intx %>%
       mutate(roadlength = (st_length(intx) * 0.3048)) %>% #NOTE dividing to convert to length from ft to meters
-      mutate(trafload = TD15 * (st_length(intx) * 0.3048)) 
+      mutate(trafload = eval(parse(text=td_field)) * (st_length(intx) * 0.3048)) #NOTE there is no truck or heavy vehicle substituation count
     
+    # Road (line) length
     rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
     rl$hhid_x <- row.names(rl)
     names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
     rownames(rl) <- c()
+    
+    rl$styear <- Prediction_Year
+    
     write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
     
-    
+    # Traffic load
     tl <- data.frame(rowsum(x = intx$trafload, group = intx$hhid_x))
     tl$hhid_x <- row.names(tl)
     names(tl)[1] <- paste0(names(predictors)[i],"_tl_",as.character(lbuffdists))
     rownames(tl) <- c()
-    write.csv(tl, paste0(names(predictors)[i],"_tl_",as.character(lbuffdists),".csv"),row.names = F)
     
+    tl$styear <- Prediction_Year
+    
+    write.csv(tl, paste0(names(predictors)[i],"_tl_",as.character(lbuffdists),".csv"),row.names = F)
   } else {
     print(paste0(names(predictors)[i],"_rltl_",as.character(lbuffdists)," had no intersections"))
   }
 }
 
+# Road length and traffic load for roads with heavy vehicle type (single and combo trucks) data within buffers
+# NOTE - these data are only available on state routes and interstates, so there is often NO data here for participants
 predictors <- list("vehtype" = vehtype)
 mapply(FUN = intx_heavyvehicles, predictors, lbuffdists)
 
-
-#### Road length and speed loading ####
-
-# line in area buffer distances (rail, bus route, road)
-lbuffdists <- c(25, 50, 100, 300, 500, 1000)
-
+# Intersection of roads with any type of vehicle loadings and speed limits
 intx_stspeed <- function(p,lbuffdists,i){
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
   intx <- st_intersection(st_buffer(addrs, dist = 3.28084*lbuffdists), p)
   intx <- st_cast(intx, "MULTILINESTRING")
   if (nrow(intx)>0) {
     intx <- intx %>%
-      # mutate(roadlength = (st_length(intx) * 0.3048)) %>% #NOTE dividing to convert to length from ft to meters
-      mutate(speedload = SPEED_CD * (st_length(intx) * 0.3048)) #NOTE this is built from VD15 values and roads with no counts ("0") are subbed with 500 as per ESCAPE
-    
-    # rl <- data.frame(rowsum(x = intx$roadlength, group = intx$hhid_x))
-    # rl$hhid_x <- row.names(rl)
-    # names(rl)[1] <- paste0(names(predictors)[i],"_rl_",as.character(lbuffdists))
-    # rownames(rl) <- c()
-    # write.csv(rl, paste0(names(predictors)[i],"_rl_",as.character(lbuffdists),".csv"),row.names = F)
-    
-    
+      mutate(speedload = SPEED_CD * (st_length(intx) * 0.3048)) #NOTE speed limits are based on a file from 2010/03/01
+
     sl <- data.frame(rowsum(x = intx$speedload, group = intx$hhid_x))
     sl$hhid_x <- row.names(sl)
     names(sl)[1] <- paste0(names(predictors)[i],"_sl_",as.character(lbuffdists))
     rownames(sl) <- c()
+    
+    sl$styear <- Prediction_Year
+    
     write.csv(sl, paste0(names(predictors)[i],"_sl_",as.character(lbuffdists),".csv"),row.names = F)
     
   } else {
-    print(paste0(names(predictors)[i],"_rlsl_",as.character(lbuffdists)," had no intersections"))
+    print(paste0(names(predictors)[i],"_sl_",as.character(lbuffdists)," had no intersections"))
   }
 }
 
+# Speed load (eg speed limit * road length) for all roads with speed limits as of 2010 within buffers
 predictors <- list("stspeed" = stspeed)
 mapply(FUN = intx_stspeed, predictors, lbuffdists)
 
 
-#### Nearest line sources with vehicle loading (e.g. roads) ####
 
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+#### Nearest Line Predictors - With Vehicle or Speed Loading NOTE NEAREST SPEED DOESN"T WORK!!!!!####
 
 #Nearest road and TD (truck density)
 d <- st_distance(addrs, vehtype)
 min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d.td <- apply(d, 1, function(x) vehtype$TD15 [order(x)][1])
+min.d.td <- apply(d, 1, function(x) eval(parse(text=vehtype_field)) [order(x)][1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
 min.d_df$dist <- min.d * 0.3048
 min.d_df$td <- min.d.td
@@ -673,13 +717,16 @@ vehtypenr$heavyintinvnear2<-vehtypenr$heavytrafnear * ((1/vehtypenr$NRDistM)^2)
 
 #drop the distance variable as this isn't a predictor
 vehtypenr$NRDistM <- NULL
+
+vehtypenr$styear <- Prediction_Year
+
 write.csv(vehtypenr, "vehtype_nr.csv", row.names = F)
 
 
 #Nearest road and VD
 d <- st_distance(addrs, roads)
 min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d.vd <- apply(d, 1, function(x) roads$VD15 [order(x)][1])
+min.d.vd <- apply(d, 1, function(x) eval(parse(text=roads_field)) [order(x)][1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
 min.d_df$dist <- min.d * 0.3048
 min.d_df$vd <- min.d.vd
@@ -711,6 +758,9 @@ roadnr$intinvnear2<-roadnr$trafnear * ((1/roadnr$NRDistM)^2)
 
 #drop the distance variable as this isn't a predictor
 roadnr$NRDistM <- NULL
+
+roadnr$styear <- Prediction_Year
+
 write.csv(roadnr, "road_nr.csv", row.names = F)
 
 
@@ -718,7 +768,7 @@ write.csv(roadnr, "road_nr.csv", row.names = F)
 #Nearest major road and VD
 d <- st_distance(addrs, mroads)
 min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d.vd <- apply(d, 1, function(x) mroads$VD15 [order(x)][1])
+min.d.vd <- apply(d, 1, function(x) eval(parse(text=mroads_field)) [order(x)][1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
 min.d_df$dist <- min.d * 0.3048
 min.d_df$vd <- min.d.vd
@@ -742,243 +792,261 @@ mroadnr$intmajorinv2<-mroadnr$trafmajor * ((1/mroadnr$NRDistM)^2)
 
 #drop the distance variable as this isn't a predictor
 mroadnr$NRDistM <- NULL
+
+mroadnr$styear <- Prediction_Year
+
 write.csv(mroadnr, "mroad_nr.csv", row.names = F)
 
 
-#Nearest road and speed limit (as per 2010 speed limits, last date of 2010)
+#Nearest road and speed limit (as per 2010)
 d <- st_distance(addrs, stspeed)
 min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d.spdlim <- apply(d, 1, function(x) stspeed$SPEED_CD [order(x)][1])
+min.d.stspeed <- apply(d, 1, function(x) stspeed$SPEED_CD [order(x)][1])
 min.d_df <- data.frame(numeric(nrow(addrs)))
 min.d_df$dist <- min.d * 0.3048
-min.d_df$spdlim <- min.d.spdlim
+min.d_df$stspeed <- min.d.stspeed
 min.d_df[1] <- NULL
 
 addrsdf <- as.data.frame(addrs)
-spdlimnr <- cbind(addrsdf, min.d_df)
-spdlimnr <- subset(spdlimnr, select = c(hhid_x, dist, spdlim)) #pull out hhid_x, distance to, and vd per day
+stspeednr <- cbind(addrsdf, min.d_df)
+stspeednr <- subset(stspeednr, select = c(hhid_x, dist, stspeed)) #pull out hhid_x, distance to, and speed
 
 #rename according to ESCAPE nomenclature
 #names(roadnr)[1]<-"hhid"
-names(spdlimnr)[2]<-"NRDistM"
-names(spdlimnr)[3]<-"spdlimnear"
+names(stspeednr)[2]<-"NRDistM"
+names(stspeednr)[3]<-"stspeednear"
 
-
-#calculate predictors based on "vd" and "dist" fields
-spdlimnr$distinvspdlim1<-1/spdlimnr$NRDistM
-spdlimnr$distinvspdlim2<-(1/spdlimnr$NRDistM)^2
-# spdlimnr$intinvnear1<-roadnr$trafnear * (1/roadnr$NRDistM)
-# spdlimnr$intinvnear2<-roadnr$trafnear * ((1/roadnr$NRDistM)^2)
-
+#calculate predictors based on "speed" and "dist" fields
+stspeednr$distinvstspeed1<-1/stspeednr$NRDistM
+stspeednr$distinvstspeed2<-(1/stspeednr$NRDistM)^2
 
 #drop the distance variable as this isn't a predictor
-spdlimnr$NRDistM <- NULL
-write.csv(spdlimnr, "spdlim_nr.csv", row.names = F)
+stspeednr$NRDistM <- NULL
+
+stspeednr$styear <- Prediction_Year
+
+write.csv(stspeednr, "stspeed_nr.csv", row.names = F)
 
 
-#### Nearest line sources without vehicle loading (e.g. bus routes) ####
-
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
+#### Nearest Line Predictors - No Vehicle or Speed Loading ####
 
 # Nearest bus route
-d <- st_distance(addrs, busrt)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-busrtnr <- cbind(addrsdf, min.d_df)
-busrtnr <- subset(busrtnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(busrtnr)[1]<-"hhid"
-names(busrtnr)[2]<-"NRDistM"
-
-busrtnr$distintvbusrt1<-1/busrtnr$NRDistM
-busrtnr$distintvbusrt2<-(1/busrtnr$NRDistM)^2
-
-busrtnr$NRDistM<-NULL
-write.csv(busrtnr, "busrt_nr.csv", row.names = F)
-
+predictors <- list("busrt" = busrt)
+mapply(FUN = nearest_poly_pt, predictors)
 
 # Nearest rail line
-d <- st_distance(addrs, rail)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-railnr <- cbind(addrsdf, min.d_df)
-railnr <- subset(railnr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-#rename remaining fields
-#names(railnr)[1]<-"hhid"
-names(railnr)[2]<-"NRDistM"
-
-railnr$distintvrail1<-1/railnr$NRDistM
-railnr$distintvrail2<-(1/railnr$NRDistM)^2
-
-railnr$NRDistM<-NULL
-write.csv(railnr, "rail_nr.csv", row.names = F)
+predictors <- list("rail" = rail)
+mapply(FUN = nearest_poly_pt, predictors)
 
 
-#### Nearest polygon sources with unit loading (historic housing development) ####
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-
-#Nearest development and planned density
-d <- st_distance(addrs, histdev)
-min.d <- apply(d, 1, function(x) sort(x)[1])
-min.d.hd <- apply(d, 1, function(x) histdev$UNITS [order(x)][1])
-min.d_df <- data.frame(numeric(nrow(addrs)))
-min.d_df$dist <- min.d * 0.3048
-min.d_df$hd <- min.d.hd
-min.d_df[1] <- NULL
-
-addrsdf <- as.data.frame(addrs)
-histdevnr <- cbind(addrsdf, min.d_df)
-histdevnr <- subset(histdevnr, select = c(hhid_x, dist, hd)) #pull out hhid_x, distance to, and value field
-
-#rename according to ESCAPE nomenclature
-#names(roadnr)[1]<-"hhid"
-names(histdevnr)[2]<-"NRDistM"
-names(histdevnr)[3]<-"hdnear"
-
-# In case any address is in the nearest development, add 0.1 m to near distance
-histdevnr$NRDistM <- histdevnr$NRDistM + 0.1
-
-
-#calculate predictors based on "hd" and "dist" fields
-histdevnr$distinvhd1<-1/histdevnr$NRDistM
-histdevnr$distinvhd2<-(1/histdevnr$NRDistM)^2
-histdevnr$intinvhd1<-histdevnr$hdnear * (1/histdevnr$NRDistM)
-histdevnr$intinvhd2<-histdevnr$hdnear * ((1/histdevnr$NRDistM)^2)
-
-
-#drop the distance variable as this isn't a predictor
-histdevnr$NRDistM <- NULL
-write.csv(histdevnr, "histdev_nr.csv", row.names = F)
-
-
-
-#### Nearest polygon (e.g. active surface mines) and point (e.g. rail yard) sources ####
-
-nearest_poly_pt <- function(p,i){
-  addrs <- read_addrs()
-  setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-  d <- st_distance(addrs, p)
-  min.d <- apply(d, 1, function(x) sort(x)[1])
-  min.d_df <- data.frame(numeric(nrow(addrs)))
-  min.d_df$dist <- min.d * 0.3048
-  min.d_df[1] <- NULL
-  
-  addrsdf <- as.data.frame(addrs)
-  predictor_nr <- cbind(addrsdf, min.d_df)
-  predictor_nr <- subset(predictor_nr, select = c(hhid_x, dist)) #pull out hhid_x, distance to
-
-  names(predictor_nr)[2]<-"NRDistM"
-  
-  predictor_nr$distintvpred1<-1/predictor_nr$NRDistM
-  predictor_nr$distintvpred2<-(1/predictor_nr$NRDistM)^2
-  
-  predictor_nr$NRDistM<-NULL
-  
-  names(predictor_nr)[2]<-paste0("distintv",names(predictors)[i],"1")
-  names(predictor_nr)[3]<-paste0("distintv",names(predictors)[i],"2")
-  
-  write.csv(predictor_nr, paste0(names(predictors)[i],"_nr.csv"),row.names = F)
-  
+#### Census Predictor ####
+#Census population and households weighted to area
+intx_census <- function(p,abuffdists,i){
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), p)
+  if (nrow(intx)>0) {
+    intx <- intx %>%
+      mutate(intx_area = st_area(intx),
+             hh_intx_area = HHOLD * intx_area,
+             pop_intx_area = POP * intx_area) %>%
+      group_by(hhid_x) %>%
+      mutate(full_area = sum(intx_area),
+             full_hh_wtd = sum(hh_intx_area),
+             full_pop_wtd = sum(pop_intx_area),
+             hh_wtd = full_hh_wtd/full_area,
+             pop_wtd = full_pop_wtd/full_area)
+    
+    hh <- data.frame(intx)
+    
+    hh <- hh %>% 
+      distinct(hhid_x, hh_wtd)
+    
+    names(hh)[2] <- paste0("hh_",as.character(abuffdists))
+    
+    hh$styear <- Prediction_Year
+    
+    write.csv(hh, paste0("hh_",as.character(abuffdists),".csv"),row.names = F)
+    
+    
+    pop <- data.frame(intx)
+    
+    pop <- pop %>% 
+      distinct(hhid_x, pop_wtd)
+    
+    names(pop)[2] <- paste0("pop_",as.character(abuffdists))
+    
+    pop$styear <- Prediction_Year
+    
+    write.csv(pop, paste0("pop_",as.character(abuffdists),".csv"),row.names = F)
+    
+    
+  } else {
+    print("hhpop_",as.character(abuffdists)," had no intersections")
+  }
 }
 
-# Distance to nearest landfill
-predictors <- list("landfills" = landfills)
-mapply(FUN = nearest_poly_pt, predictors)
+abuffdists <- c(5000, 1000, 500, 300, 100)
 
-# Distance to nearest airport runway
-predictors <- list("air" = air)
-mapply(FUN = nearest_poly_pt, predictors)
+predictors <- list("census" = census)
 
-# Distance to Davis-Monthan AFB
-predictors <- list("dmafb" = dmafb)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to Tucson International Airport
-predictors <- list("tia" = tia)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest active surface mine
-predictors <- list("mines" = mines)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest active Sun Tran bus stop
-predictors <- list("busstops" = busstops)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest Sun Tran transit center
-predictors <- list("trnscenters" = trnscenters)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to rail yard
-predictors <- list("railyard" = railyard)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to TEP Generating Station off I10, Tucson
-predictors <- list("tepplant" = tepplant)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest cement plant
-predictors <- list("cmntplant" = cmntplant)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest school
-predictors <- list("schools" = schools)
-mapply(FUN = nearest_poly_pt, predictors)
-
-# Distance to nearest bus maintenance depot
-predictors <- list("busdepots" = busdepots)
-mapply(FUN = nearest_poly_pt, predictors)
-
-#### CALINE 2010 Average Annual PM2.5 Concentration ####
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/CALINE3/2010")
-caline <- read.csv("ExposureForAllIndividuals.csv")
-
-caline$hhid_x <- caline$CRSID
-
-caline <- caline %>%
-  dplyr::group_by(hhid_x) %>%
-  dplyr::summarise(cal3_pm25 = mean(Total))
-
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-write.csv(caline, "caline.csv", row.names = F)
+ifelse(Prediction_Year>1976 & Prediction_Year<1985, mapply(FUN = intx_census, predictors, abuffdists),
+       ifelse(Prediction_Year>1986 & Prediction_Year<1995, mapply(FUN = intx_census, predictors, abuffdists),
+              ifelse(Prediction_Year>1996 & Prediction_Year<2005, mapply(FUN = intx_census, predictors, abuffdists), 
+                     mapply(FUN = intx_census, predictors, abuffdists))))
 
 
-#### Create coordinate XY predictors ####
+#### Land Use Predictor (1992 and 2011 NLCD years only!) ####
 
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Shapefiles")
-addrs <- st_read("Sites.shp", stringsAsFactors = F)
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
-addrs <- subset(addrs, addrs$hhid_x != "QF44_A") #dropped as this was only measured once without GPS coords
+#Land uses from NLCD weighted to area
+intx_lu_1992 <- function(p,abuffdists,i){
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
+  intx <- intx %>%
+    mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
+  
+  intx$GRIDCODE<-as.character(intx$grid_code)
+  
+  intx$luc <- ifelse(intx$GRIDCODE=='21', "lr",
+                     ifelse(intx$GRIDCODE=='22', "hr",
+                            ifelse(intx$GRIDCODE=='23', "cm",
+                                   ifelse(intx$GRIDCODE=='85', "ug",
+                                          ifelse(intx$GRIDCODE=='11' |
+                                                   intx$GRIDCODE=='12' |
+                                                   intx$GRIDCODE=='40' |
+                                                   intx$GRIDCODE=='41' |
+                                                   intx$GRIDCODE=='42' |
+                                                   intx$GRIDCODE=='43' |
+                                                   intx$GRIDCODE=='50' |
+                                                   intx$GRIDCODE=='51' |
+                                                   intx$GRIDCODE=='60' |
+                                                   intx$GRIDCODE=='70' |
+                                                   intx$GRIDCODE=='71' |
+                                                   intx$GRIDCODE=='91' |
+                                                   intx$GRIDCODE=='92', "nt",
+                                                 ifelse(intx$GRIDCODE=='61' |
+                                                          intx$GRIDCODE=='80' |
+                                                          intx$GRIDCODE=='81' |
+                                                          intx$GRIDCODE=='82' |
+                                                          intx$GRIDCODE=='83' |
+                                                          intx$GRIDCODE=='84', "ag", 
+                                                        ifelse(intx$GRIDCODE=='30' |
+                                                                intx$GRIDCODE=='31' |
+                                                                 intx$GRIDCODE=='32' |
+                                                                 intx$GRIDCODE=='33', "br", "xx")))))))
+  
+  intx <- intx %>%
+    group_by(hhid_x, luc) %>%
+    summarise(area = sum(Shape_Area))
+  
+  st_geometry(intx) <- NULL
+  
+  intx <- spread(intx, luc, area)
+  
+  names(intx)[names(intx)=="lr"] <- paste0("lu_lr_",as.character(abuffdists))
+  names(intx)[names(intx)=="hr"] <- paste0("lu_hr_",as.character(abuffdists))
+  names(intx)[names(intx)=="cm"] <- paste0("lu_cm_",as.character(abuffdists))
+  names(intx)[names(intx)=="ug"] <- paste0("lu_ug_",as.character(abuffdists))
+  names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
+  names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
+  names(intx)[names(intx)=="br"] <- paste0("lu_br_",as.character(abuffdists))
+  
+  intx$styear <- Prediction_Year
+  
+  write.csv(intx, paste0("lu_",as.character(abuffdists),".csv"),row.names = F)
+}
 
-addrs <- subset(addrs, select = c(HHID, HHIDX, hhid_x))
-addrs$hhid_x <- paste(addrs$HHID, addrs$HHIDX, sep="_") #make unique address ID
+intx_lu_2011 <- function(p,abuffdists,i){
+  intx <- st_intersection(st_buffer(addrs, dist = 3.28084*abuffdists), lu)
+  intx <- intx %>%
+    mutate(Shape_Area = as.numeric(st_area(intx)) * 0.092903)
+  
+  intx$luc <- ifelse(intx$GRIDCODE=='22' | intx$GRIDCODE=='23', "lr",
+                     ifelse(intx$GRIDCODE=='24', "hr",
+                            ifelse(intx$GRIDCODE=='21', "ug",
+                                   ifelse(intx$GRIDCODE=='11' |
+                                            intx$GRIDCODE=='12' |
+                                            intx$GRIDCODE=='41' |
+                                            intx$GRIDCODE=='42' |
+                                            intx$GRIDCODE=='43' |
+                                            intx$GRIDCODE=='51' |
+                                            intx$GRIDCODE=='52' |
+                                            intx$GRIDCODE=='71' |
+                                            intx$GRIDCODE=='90' |
+                                            intx$GRIDCODE=='95', "nt",
+                                          ifelse(intx$GRIDCODE=='81' |
+                                                   intx$GRIDCODE=='82', "ag", 
+                                                 ifelse(intx$GRIDCODE=='31', "br", "xx"))))))
+  
+  intx <- intx %>%
+    group_by(hhid_x, luc) %>%
+    summarise(area = sum(Shape_Area))
+  
+  st_geometry(intx) <- NULL
+  
+  intx <- spread(intx, luc, area)
+  
+  names(intx)[names(intx)=="lr"] <- paste0("lu_lr_",as.character(abuffdists))
+  names(intx)[names(intx)=="hr"] <- paste0("lu_hr_",as.character(abuffdists))
+  names(intx)[names(intx)=="ug"] <- paste0("lu_ug_",as.character(abuffdists))
+  names(intx)[names(intx)=="nt"] <- paste0("lu_nt_",as.character(abuffdists))
+  names(intx)[names(intx)=="ag"] <- paste0("lu_ag_",as.character(abuffdists))
+  names(intx)[names(intx)=="br"] <- paste0("lu_br_",as.character(abuffdists))
+  
+  intx$styear <- Prediction_Year
+  
+  write.csv(intx, paste0("lu_",as.character(abuffdists),".csv"),row.names = F)
+}
 
-addrs <- addrs  %>% st_set_crs(NA) %>% st_set_crs(2868)
-st_transform(addrs, crs = 2868)
+abuffdists <- c(5000, 1000, 500, 300, 100)
+
+predictors <- list("lu" = lu)
+
+# Selects the appropriate land use year and function to run
+ifelse(Prediction_Year<=1997, mapply(FUN = intx_lu_1992, predictors, abuffdists),
+       ifelse(Prediction_Year>1997 & Prediction_Year<=2003, mapply(FUN = intx_lu_2001, predictors, abuffdists),
+              ifelse(Prediction_Year>2003 & Prediction_Year<=2008, mapply(FUN = intx_lu_2006, predictors, abuffdists),
+                     ifelse(Prediction_Year>2009, mapply(FUN = intx_lu_2011, predictors, abuffdists),
+                            print("Check your prediction year")))))
+                            
 
 
-addrs$Xcoord <- st_coordinates(addrs)[,1]
-addrs$Ycoord <- st_coordinates(addrs)[,2]
 
-addrs$XplusY <- addrs$Xcoord + addrs$Ycoord
-addrs$XminusY <- addrs$Xcoord - addrs$Ycoord
 
-st_geometry(addrs) <- NULL
 
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Predictors")
-write.csv(addrs, "coords.csv", row.names = F)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #### **RUN FROM HERE** ####

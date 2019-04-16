@@ -29,7 +29,7 @@ However PCWS didn't follow ESCAPE so this is slightly more involved and we will 
 rm(list=ls())
 
 # Read in packages
-packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2', 'lubridate')
+packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2', 'lubridate', 'broom', 'rlist')
 
 
 package.check <- lapply(packages, FUN = function(x) {
@@ -396,16 +396,24 @@ Of 60 homes, 7 have measures in different years. The rest have only a single mea
 
 # Read in NO2, PM2.5, and PM10 background values from the longest, constantly running PDEQ monitors for NAAQS compliance
 # Downloaded in 20 year increments for all available data from 1980 - 2017 from https://aqs.epa.gov/api on 2018/12/28 with user: lothrop@email.arizona.edu and password 'rubycat56'
+# Parameter codes are NO2: 42602 at 1 hour sample duration; PM2.5: 88502 (Acceptable PM2.5 AQI & Speciation Mass); PM10: 81102 (PM10 Total 0-10um STP), both at 24 hour sample duration
 # NO2, PM2.5, and PM10 monitor sites that running longest aren't same (NO2: Alvernon/Craycroft; PM2.5: Saguaro Park; PM10: Orange Grove)
 # Note that PM2.5 monitoring is taken offline temporarily at Saguaro Park 1994-1999
 
 wd <- "/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/Data/PDEQHistoric"
 
-no2_ref <- read.csv(paste0(wd,"/","NO2_1980_2000.txt"), header = T)
+no2_ref1 <- read.csv(paste0(wd,"/","NO2_1980_2000.txt"), header = T)
+no2_ref2 <- read.csv(paste0(wd,"/","NO2_2000_2017.txt"), header = T)
+no2_ref <- bind_rows(no2_ref1, no2_ref2)
 
-pm25_ref <- read.csv(paste0(wd,"/","PM25_1980_2000.txt"), header = T)
+pm25_ref1 <- read.csv(paste0(wd,"/","PM25_1980_2000.txt"), header = T)
+pm25_ref1$Qualifier.Description <- as.factor(pm25_ref1$Qualifier.Description) #need to update field type because as an artifact of import
+pm25_ref2 <- read.csv(paste0(wd,"/","PM25_2000_2017.txt"), header = T)
+pm25_ref <- bind_rows(pm25_ref1, pm25_ref2)
 
-pm10_ref <- read.csv(paste0(wd,"/","PM10_1980_2000.txt"), header = T)
+pm10_ref1 <- read.csv(paste0(wd,"/","PM10_1980_2000.txt"), header = T)
+pm10_ref2 <- read.csv(paste0(wd,"/","PM10_2000_2017.txt"), header = T)
+pm10_ref <- bind_rows(pm10_ref1, pm10_ref2)
 
 # Create annual averages for each pollutant type
 no2_ref <- no2_ref %>%
@@ -431,14 +439,23 @@ pm25_ref <- filter(pm25_ref, !is.na(pm25_ref))
 pm10_ref <- filter(pm10_ref, !is.na(pm10_ref))
 
 summary(no2_ref$no2_ref)
+
+```
+Since there are values below 0 that have no qualifier or description of an error or issue, we will truncate these values to 0 ppb.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+no2_ref$no2_ref <- ifelse(no2_ref$no2_ref < 0, 0, no2_ref$no2_ref)
+summary(no2_ref$no2_ref)
 summary(pm25_ref$pm25_ref)
 summary(pm10_ref$pm10_ref)
 
-
 ```
-Summary values all make sense. The very high PM10 values all have description qualifiers on them in the raw data noting high wind events (eg dust storms), which are a known issue in this area that will push Pima County to violate PM10 NAAQS standards. Next step is to merge together by start date to relevant pollutant.
+
+Summary values all make sense now. The very high PM10 values all have description qualifiers on them in the raw data noting high wind events (eg dust storms), which are a known issue in this area that will push Pima County to violate PM10 NAAQS standards. Next step is to merge together by start date to relevant pollutant.
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
 read.data <- function(){
 #read in all p5 data
 p5all<- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Results/P5_Master.csv")
@@ -668,25 +685,297 @@ summary(lm(pm25_mon_ratio~
 
 ```
 
-There are simply not enough data points to impute or rather extrapolate on the early end of PM2.5 data. As per discussion with Paloma on 2/13/19 in office hours, we'll simply exclude these data that do not have a reference background monitor (ie anything before June 1988).
+There are simply not enough data points to impute or rather extrapolate on the early end of PM2.5 data. As per discussion with Paloma on 2/13/19 in office hours, we'll simply exclude these PCWS data that do not have a PM2.5 reference background monitor (ie anything before June 1988).
 
 We will continue creating the annual average for each household to be used as the outcome in the linear regressions.
 
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#### PCWS LUR Creation
+PCWS data is collected over 5 years, so much messier. 
 
-pcws_lur_data <- data %>%
+```{r PCWS LUR Data Creation, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Create the annual average pollutant values
+pcws_ap <- data %>%
   group_by(hhid,styear) %>%
   summarise(no2_adj=mean(no2_adj),
             pm25_adj=mean(pm25_adj),
             pm10_adj=mean(pm10_adj)) %>%
-  mutate(hhid_x=paste0(hhid,"_A"))
+  mutate(hhid_x=paste0(hhid,"_A")) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-hhid) %>%
+  dplyr::select(hhid_x, everything())
+
+pcws_lur_preds_pull <- function(folder_year){
+  # Pull out predictors from each year folder, assign a 'styear' to them for merging to pollutant measurement dataset
+  filenames=list.files(path=paste0("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/P5/Data/LUR/Predictors/",folder_year), full.names=TRUE)
+
+  datalist = lapply(filenames, function(x){read.csv(file=x,header=T)})
+
+  # Combine all predictor files and creates a styear field and deletes all "....x....y" styear artifacts from merging
+  pcws_lur_preds <- datalist %>%
+    Reduce(function(x,y) left_join(x,y,by="hhid_x"), .) %>% # merge all predictor csvs together
+    mutate(year = styear.x) %>%
+    dplyr::select(-starts_with("styear")) %>%
+    mutate(styear = year) %>%
+    dplyr::select(-year)
+  
+  pcws_lur_preds
+
+}
+
+# Save the LUR predictor file for each folder year
+pcws_lur_preds_1987 <- pcws_lur_preds_pull('1987')
+pcws_lur_preds_1988 <- pcws_lur_preds_pull('1988')
+pcws_lur_preds_1989 <- pcws_lur_preds_pull('1989')
+pcws_lur_preds_1990 <- pcws_lur_preds_pull('1990')
+pcws_lur_preds_1991 <- pcws_lur_preds_pull('1991')
+
+
+
+# Combine all the predictor sets
+pcws_lur_preds <- bind_rows(pcws_lur_preds_1987,
+                             pcws_lur_preds_1988,
+                             pcws_lur_preds_1989,
+                             pcws_lur_preds_1990,
+                             pcws_lur_preds_1991)
+
+# Combine air pollution values and predictors
+pcws_lur_data <- inner_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+       
+
+# Correct any predictor values (starting with the 5th column) that are NA to 0
+pcws_lur_data[, 6:ncol(pcws_lur_data)][is.na(pcws_lur_data[, 6:ncol(pcws_lur_data)])] <- 0
+
+# Remove predictor columns with all 0s, as this will cause the regression to fail
+pcws_lur_data <- pcws_lur_data[, apply(pcws_lur_data, 2, function(x) !all(x==0))] 
+
+# NOTE - stspeed_nr variables will be deleted until this analysis can be worked out!!! It doesn't work for whatever reason (even though the stspeed loading analyses do - see section in GIS_Prediction_Creation.R script)
+pcws_lur_data <- pcws_lur_data %>%
+  dplyr::select(-c(stspeednear, distinvstspeed1, distinvstspeed2))
+
+# NOTE - we are dropping observations that start in 1992 - there are results data but no address info
+
+pcws_lur_data <- filter(pcws_lur_data, styear!=1992)
+
 ```
 
 
-#### TAPS Data
+```{r PCWS LUR, echo=FALSE, message=FALSE, warning=FALSE}
+
+escape_lur_mod <- function(pollutant) {
+  
+  # Create a pollutant outcome field variable (eg "no2_adj")
+  pollutant_outcome <- paste0(pollutant,"_adj")
+  
+  # Create a lur dataset for only said pollutant where only pollutant values not NA are there, then remove predictors with all 0s in that subset
+  pcws_lur_data_TEMP <- filter(pcws_lur_data, !is.na(eval(parse(text=pollutant_outcome))))
+  
+  # Remove predictor columns with all 0s, as this will cause the regression to fail
+  pcws_lur_data_TEMP <- pcws_lur_data_TEMP[, apply(pcws_lur_data_TEMP, 2, function(x) !all(x==0))] 
+
+  # Create an expected coefficient direction field variable (eg "expected_coef_no2")
+  expected_coef <- paste0("expected_coef_",pollutant)
+  # And then create a specific file and field designation for the pollutant model df of coefficients (eg"pred_coef_test$expected_coef_no2")
+  pred_coef_test.expected_coef <- as.character(paste0('pred_coef_test$', expected_coef))
+
+  # Read in the expected coefficients pre-determined from previous research/literature
+  preds_expected_coefs <- read.csv("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/lur/preds_expected_coefs.csv", header = T)
+
+  preds_expected_coefs$pred <- as.character(preds_expected_coefs$pred)
+  
+  # Univariate regressions to find starting variable for pollutant
+  
+  # Pull out predictor names
+  pred <- colnames(pcws_lur_data_TEMP[6:ncol(pcws_lur_data_TEMP)])
+  
+  # Run simple regressions with all predictors
+  # Pull resulting adjusted R2s
+  adjr2<-apply(pcws_lur_data_TEMP[6:ncol(pcws_lur_data_TEMP)], 2, function(x) summary(lm(eval(parse(text=pollutant_outcome)) ~ x,data=pcws_lur_data_TEMP))$adj.r.squared)
+  
+  # Pull resulting coefficients
+  # coef<-apply(pcws_lur_data_TEMP[6:ncol(pcws_lur_data_TEMP)], 2, function(x) coef(summary(lm(eval(parse(text=pollutant_outcome)) ~ x,data=pcws_lur_data_TEMP)))[2,1])
+  
+    coef<-apply(pcws_lur_data_TEMP[6:ncol(pcws_lur_data_TEMP)], 2, function(x) tidy(lm(eval(parse(text=pollutant_outcome)) ~ x,data=pcws_lur_data_TEMP))[2,2])
+  
+  pcws_lur_simple_out <- data.frame(pred, coef, adjr2) # put the estimated adj r2 and coefs in data frame
+  
+  rownames(pcws_lur_simple_out) <- NULL
+  
+  # Create a predictor direction for the coefficients in the regression
+  pcws_lur_simple_out <- pcws_lur_simple_out %>%
+    mutate(coef_direction = ifelse(coef>0,"positive","negative")) 
+  
+  # Merge by predictor name to get expected coef direction data 
+  pcws_lur_simple_out <- left_join(pcws_lur_simple_out, preds_expected_coefs, by=c("pred")) 
+  
+  # Filter out predictors that do not meet expected coefficient direction (those without a determined direction stay regardless) and choose the highest adjusted R2 value of those that remain for the seed predictor for this model
+  pcws_lur_simple_out <- pcws_lur_simple_out %>%
+    filter(eval(parse(text=expected_coef)) == "undetermined" | coef_direction == eval(parse(text=expected_coef))) %>%
+    arrange(desc(adjr2))
+  
+  # Define the seed predictor
+  seed_pred <- pcws_lur_simple_out$pred[1]
+  
+  # Reload all the predictors into a list, but cut out the seed predictor so it can be moved to the first position
+  predictors <- pred[!pred %in% eval(seed_pred)]
+  predictors <- c(seed_pred, predictors, "styear")
+  
+  # Seed model
+  mod_form <- formula(paste0(pollutant_outcome,"~",seed_pred))
+  mod <- lm(mod_form, pcws_lur_data_TEMP)
+  
+  # Seed adj R2
+  adjr2 <- rep(0,length(predictors))
+  adjr2[1] <- summary(mod)$adj.r.squared
+  
+  # For all preds in the list
+    # Add in new pred, test model and assumptions
+      # If assumptions are met, then keep this updated model with new pred, update it as the working model and make it next starting model
+  
+      # If assumptions are NOT met, then go back to previously saved working by removing the most recently added predictor
+  
+  for (i in 2:length(predictors)){
+    
+    mod_form <- update(mod_form,  as.formula(paste('~ . +', predictors[i])))
+    mod <- lm(mod_form,pcws_lur_data_TEMP)
+  
+    adjr2[i] <- glance(summary(mod))[1,2]
+    
+    if (adjr2[i] > (adjr2[i-1] + 0.01)) {  
+      print(paste0("Hooray! This predictor increased model adj R2 test by >0.01"))
+      
+      pred_coef <- tidy(mod)
+    
+      # Create a predictor direction for the coefficients in the regression
+      pred_coef$coef_direction <- ifelse(pred_coef$estimate>0,"positive","negative")
+      pred_coef$pred <- pred_coef$term
+      
+      # Merge by predictor name to get expected coef direction data
+      pred_coef_test <- inner_join(pred_coef, preds_expected_coefs, by=c("pred"))
+    
+      if(all((as.character(eval(parse(text=pred_coef_test.expected_coef))) == "undetermined") |
+         (as.character(eval(parse(text=pred_coef_test.expected_coef))) == pred_coef_test$coef_direction))) {     
+          print(paste0("Hooray! Coefficients for predictor and previous predictors all meet predetermined directions. This predictor will be added to the model."))
+      } else {            
+          # code if 1 passes, 2 fails
+        print(paste0("Boo! This predictor increased the adj R2 >0.01 compared to the previous model, but the coefficient for this predictor or another didn't match the predetermined direction."))
+        
+          # Turn formular in text, then find the first (+) sign searching from the right (eg. the most recently added predictor that's no good), and cut this section of "+ predictorname" and change it back to formula and model
+          mod_form_text <- as.character(mod_form[3])
+          pred_to_cut <- paste0(" + ",predictors[i])
+          mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+          mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+          mod <- lm(mod_form,pcws_lur_data_TEMP)
+
+      }
+  } else {            
+      # code if 1 fails
+          print(paste0("Boo! This predictor didn't increase the adj R2 >0.01 compared to the previous model."))
+    
+          # Turn formular in text, then find the first (+) sign searching from the right (eg. the most recently added predictor that's no good), and cut this section of "+ predictorname" and change it back to formula and model
+          mod_form_text <- as.character(mod_form[3])
+          pred_to_cut <- paste0(" + ",predictors[i])
+          mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+          mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+          mod <- lm(mod_form,pcws_lur_data_TEMP)
+  
+  }
+  
+  }
+  
+  # Here is the model before removing predictors with pvalues > 0.1
+  return(mod)
+}
+
+mod <- escape_lur_mod('no2')
+mod <- escape_lur_mod('pm25')
+mod <- escape_lur_mod('pm10') 
+
+
+# Remove predictors one by one if their pvalue >0.1
+pvaltest_preds <- tidy(mod)
+
+while(any(pvaltest_preds$p.value > 0.1)){
+  var_with_max_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max vif
+    mod <- update(mod, ~. -caline_pm25)
+
+  mod <- update(mod, ~. -as.symbol(var_with_max_pvalue))
+  summary(mod)
+
+  
+  
+  
+  signif_all <- signif_all[!(signif_all) %in% var_with_max_pvalue]  # remove
+  myForm <- as.formula(paste("ozone_reading ~ ", paste (signif_all, collapse=" + "), sep=""))  # new formula
+  selectedMod <- lm(myForm, data=inputData)  # re-build model with new formula
+  all_vifs <- car::vif(selectedMod)
+}
+  # Here is the model before removing predictors with pvalues > 0.1
+  return(summary(mod))
+  
+  pred_coef <- tidy(mod)
+  
+  for (i in length(pred_coef$p.value)){
+    
+    
+    # Pull out predictors one by one if the pvalue is >0.1, starting with the largest p-value until there no more predictors fit this condition
+    
+      # Arrange pvalues from largest to smallest
+  pred_coef <- arrange(pred_coef, desc(p.value))
+  
+    
+    if (pred_coef$p.value[i] > 0.1) {
+      pred_coef[i,] <- NULL
+      print("This predictor gets cut")
+      
+    } else {
+      
+      print("This predictor will stay around")
+    }
+  }
+    
+    
+  }
+  
+}
+
+
+
+
+
+
+
+
+#check for multicollinearity
+vif(mod) # problem?
+#NOTE if vif>3, then exclude from model, starting with largest VIF first if needed
+
+
+# Cook's D plot
+# identify D values 4/(n-k-1) 
+# Observations over 1 should be checked and likely excluded
+cutoff <- 4/((nrow(pcws_lur_data)-length(mod$coefficients)-2)) 
+plot(mod, which=4, cook.levels=cutoff, labels.id = pcws_lur_data$hhid_x)
+
+#Validation
+
+#Leave one out Cross Validation
+# define training control
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(no2_adj~busstops_5000 +
+                       caline_pm25 +
+                       elev
+                     ,data=filter(pcws_lur_data, !is.na(no2_adj)), trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
+
+```
+
+#### TAPS LUR Creation
 TAPS data is relatively easy to work with and this has already been pulled in with the script TAPS_Data_Cleaning. It does QC and does the annual averages just as ESCAPE did.
 
-#### PCWS Data
-PCWS data is collected over 5 years, so much messier. 
+
+
 
 
