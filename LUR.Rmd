@@ -798,6 +798,8 @@ pcws_lur_preds <- bind_rows(pcws_lur_preds_1987,
 
 # Combine air pollution values and predictors
 pcws_lur_data <- inner_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+pcws_lur_data_nonjoin <- anti_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+
        
 
 # Correct any predictor values (starting with the 5th column) that are NA to 0
