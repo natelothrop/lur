@@ -690,20 +690,77 @@ There are simply not enough data points to impute or rather extrapolate on the e
 We will continue creating the annual average for each household to be used as the outcome in the linear regressions.
 
 #### PCWS LUR Creation
-PCWS data is collected over 5 years, so much messier. 
+PCWS data is collected over 5 years, so much messier.
 
-```{r PCWS LUR Data Creation, echo=FALSE, message=FALSE, warning=FALSE}
+For homes measured in more than 1 year, only keep year with the most measurements that year. For homes measured the same # of times in different years, keep the older as it will be closer to more life years of CRS early life stage (Birth + ID1, 1980-1992).
+
+```{r PCWS LUR Outcome Creation, echo=FALSE, message=FALSE, warning=FALSE}
 
 # Create the annual average pollutant values
-pcws_ap <- data %>%
+
+
+# NO2
+pcws_ap_no2 <- data %>%
+  filter(!is.na(no2_adj)) %>%
   group_by(hhid,styear) %>%
-  summarise(no2_adj=mean(no2_adj),
-            pm25_adj=mean(pm25_adj),
-            pm10_adj=mean(pm10_adj)) %>%
+  summarise(no2_adj=mean(no2_adj, na.rm=T),
+            no2_adj_n=n_distinct(no2ppb)) %>%
   mutate(hhid_x=paste0(hhid,"_A")) %>%
   dplyr::ungroup() %>%
   dplyr::select(-hhid) %>%
-  dplyr::select(hhid_x, everything())
+  group_by(hhid_x) %>%
+  filter(no2_adj_n==max(no2_adj_n)) %>%
+  filter(styear==min(styear)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-no2_adj_n)
+
+# PM2.5
+pcws_ap_pm25 <- data %>%
+  filter(!is.na(pm25_adj)) %>%
+  group_by(hhid,styear) %>%
+  summarise(pm25_adj=mean(pm25_adj, na.rm=T),
+            pm25_adj_n=n_distinct(pm25ugm3)) %>%
+  mutate(hhid_x=paste0(hhid,"_A")) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-hhid) %>%
+  group_by(hhid_x) %>%
+  filter(pm25_adj_n==max(pm25_adj_n)) %>%
+  filter(styear==min(styear)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-pm25_adj_n)
+
+# PM10
+pcws_ap_pm10 <- data %>%
+  filter(!is.na(pm10_adj)) %>%
+  group_by(hhid,styear) %>%
+  summarise(pm10_adj=mean(pm10_adj, na.rm=T),
+            pm10_adj_n=n_distinct(pm10ugm3)) %>%
+  mutate(hhid_x=paste0(hhid,"_A")) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-hhid) %>%
+  group_by(hhid_x) %>%
+  filter(pm10_adj_n==max(pm10_adj_n)) %>%
+  filter(styear==min(styear)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-pm10_adj_n)
+
+# Combine all single measures back into full dataset
+pcws_ap <- full_join(pcws_ap_no2, pcws_ap_pm25, by=c("hhid_x","styear"))
+pcws_ap <- full_join(pcws_ap, pcws_ap_pm10, by=c("hhid_x","styear"))
+pcws_ap <- pcws_ap %>%
+  dplyr::select(hhid_x, styear, everything())
+
+# Check to make sure each home only in dataset once
+pcws_ap %>%
+  group_by(hhid_x) %>%
+  summarise(n_homes = n_distinct(hhid_x)) %>%
+  arrange(desc(n_homes))
+
+# All homes are only in this dataset once!
+```
+
+
+```{r PCWS LUR Predictor Assembly, echo=FALSE, message=FALSE, warning=FALSE}
 
 pcws_lur_preds_pull <- function(folder_year){
   # Pull out predictors from each year folder, assign a 'styear' to them for merging to pollutant measurement dataset
@@ -762,6 +819,8 @@ pcws_lur_data <- filter(pcws_lur_data, styear!=1992)
 
 ```{r PCWS LUR, echo=FALSE, message=FALSE, warning=FALSE}
 
+
+
 escape_lur_mod <- function(pollutant) {
   
   # Create a pollutant outcome field variable (eg "no2_adj")
@@ -771,7 +830,7 @@ escape_lur_mod <- function(pollutant) {
   pcws_lur_data_TEMP <- filter(pcws_lur_data, !is.na(eval(parse(text=pollutant_outcome))))
   
   # Remove predictor columns with all 0s, as this will cause the regression to fail
-  pcws_lur_data_TEMP <- pcws_lur_data_TEMP[, apply(pcws_lur_data_TEMP, 2, function(x) !all(x==0))] 
+  pcws_lur_data_TEMP <- pcws_lur_data_TEMP[, apply(pcws_lur_data_TEMP, 2, function(x) !all(x==0))]
 
   # Create an expected coefficient direction field variable (eg "expected_coef_no2")
   expected_coef <- paste0("expected_coef_",pollutant)
@@ -883,79 +942,91 @@ escape_lur_mod <- function(pollutant) {
   
   }
   
-  # Here is the model before removing predictors with pvalues > 0.1
+  pvaltest_preds <- tidy(mod)
+
+  while(any(is.na(pvaltest_preds$p.value))){
+  var_with_NA_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+  mod_form_text <- as.character(mod_form[3])
+  pred_to_cut <- paste0(" + ",var_with_NA_pvalue)
+  mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+  mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+  mod <- lm(mod_form,pcws_lur_data_TEMP)
+  pvaltest_preds <- tidy(mod)
+
+  }
+  
+  # Pulling predictors one by one with pvalues>0.1
+  pvaltest_preds <- tidy(mod)
+  
+  # Filter out the intercept as a candidate for this approach
+  pvaltest_preds <- filter(pvaltest_preds, term != "(Intercept)")
+
+  while(any(pvaltest_preds$p.value > 0.1)){
+    var_with_max_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+    
+    # Cut out the predictor with pvalue > 0.1
+    mod_form_text <- as.character(mod_form[3])
+    pred_to_cut <- paste0(" + ",var_with_max_pvalue)
+    mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+    mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+    mod <- lm(mod_form,pcws_lur_data_TEMP)
+    pvaltest_preds <- tidy(mod) 
+      
+    # Filter out the intercept as a candidate for this approach for the next 'pass'
+    pvaltest_preds <- filter(pvaltest_preds, term != "(Intercept)")
+  }
+  
+  all_vifs <- vif(mod)
+signif_all <- names(all_vifs)
+
+  
+  while(any(all_vifs > 3)){ #NOTE if vif>3, then exclude from model, starting with largest VIF first as needed
+  var_with_max_vif <- names(which(all_vifs == max(all_vifs)))  # get the var with max vif
+
+  # Cut out the predictor with pvalue > 0.1
+  mod_form_text <- as.character(mod_form[3])
+  pred_to_cut <- paste0(" + ",var_with_max_pvalue)
+  mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+  mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+  mod <- lm(mod_form,pcws_lur_data_TEMP)
+  
+  all_vifs <- car::vif(selectedMod)
+  }
+
+# We assessed a high Cook’s D value (i.e. >1), indicating an influential observation, because it could be caused by an (extreme) high or low concentration of one of the site(s) or by an included predictor variable with extreme values or many zero values. In such case, the developed model was applied to all sites minus the site with the high Cook’s D value and the changes in model structure (parameter estimates and p-values of included variables, and model R2)were evaluated. If the high Cook’s D value was caused by one of the included predictor variables (indicated by a large change in parameter estimate for that variable without the site), a new LUR model was developed using all sites but without offering that specific predictor variable to the model. 
+
+# Cook's D plot
+# identify D values 4/(n-k-1) 
+cutoff <- 4/((nrow(pcws_lur_data)-length(mod$coefficients)-2)) 
+plot(mod, which=4, cook.levels=cutoff, labels.id = pcws_lur_data$hhid_x)
+
+cooksd <- cooks.distance(mod)
+
+if (any(cooksd>1)) {
+    print("An observation(s) has a Cook's Distances >1! Review the plot to investigate.  Here are next steps from Beelen et al 2013 (the ESCAPE NO2/x LUR paper) : We assessed a high Cook’s D value (i.e. >1), indicating an influential observation, because it could be caused by an (extreme) high or low concentration of one of the site(s) or by an included predictor variable with extreme values or many zero values. In such case, the developed model was applied to all sites minus the site with the high Cook’s D value and the changes in model structure (parameter estimates and p-values of included variables, and model R2)were evaluated. If the high Cook’s D value was caused by one of the included predictor variables (indicated by a large change in parameter estimate for that variable without the site), a new LUR model was developed using all sites but without offering that specific predictor variable to the model.")
+  
+ 
+  cutoff <- 4/((nrow(pcws_lur_data)-length(mod$coefficients)-2)) 
+  plot(mod, which=4, cook.levels=cutoff, labels.id = pcws_lur_data$hhid_x)
+} else {
+  print("All Cook's Distances are <1; no need to investigate for outsize influence.")
+}
+
+
+
   return(mod)
 }
 
 mod <- escape_lur_mod('no2')
+summary(mod)
+
 mod <- escape_lur_mod('pm25')
+summary(mod)
+
 mod <- escape_lur_mod('pm10') 
+summary(mod)
 
 
-# Remove predictors one by one if their pvalue >0.1
-pvaltest_preds <- tidy(mod)
-
-while(any(pvaltest_preds$p.value > 0.1)){
-  var_with_max_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max vif
-    mod <- update(mod, ~. -caline_pm25)
-
-  mod <- update(mod, ~. -as.symbol(var_with_max_pvalue))
-  summary(mod)
-
-  
-  
-  
-  signif_all <- signif_all[!(signif_all) %in% var_with_max_pvalue]  # remove
-  myForm <- as.formula(paste("ozone_reading ~ ", paste (signif_all, collapse=" + "), sep=""))  # new formula
-  selectedMod <- lm(myForm, data=inputData)  # re-build model with new formula
-  all_vifs <- car::vif(selectedMod)
-}
-  # Here is the model before removing predictors with pvalues > 0.1
-  return(summary(mod))
-  
-  pred_coef <- tidy(mod)
-  
-  for (i in length(pred_coef$p.value)){
-    
-    
-    # Pull out predictors one by one if the pvalue is >0.1, starting with the largest p-value until there no more predictors fit this condition
-    
-      # Arrange pvalues from largest to smallest
-  pred_coef <- arrange(pred_coef, desc(p.value))
-  
-    
-    if (pred_coef$p.value[i] > 0.1) {
-      pred_coef[i,] <- NULL
-      print("This predictor gets cut")
-      
-    } else {
-      
-      print("This predictor will stay around")
-    }
-  }
-    
-    
-  }
-  
-}
-
-
-
-
-
-
-
-
-#check for multicollinearity
-vif(mod) # problem?
-#NOTE if vif>3, then exclude from model, starting with largest VIF first if needed
-
-
-# Cook's D plot
-# identify D values 4/(n-k-1) 
-# Observations over 1 should be checked and likely excluded
-cutoff <- 4/((nrow(pcws_lur_data)-length(mod$coefficients)-2)) 
-plot(mod, which=4, cook.levels=cutoff, labels.id = pcws_lur_data$hhid_x)
 
 #Validation
 

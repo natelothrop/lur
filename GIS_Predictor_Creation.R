@@ -201,20 +201,20 @@ vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( ve
 # Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
 # This includes changing truck counts into percents; updating older road counts into true vehicle counts (not in thousands)
 vehtype <- vehtype %>%
-  mutate(TD80=(F80__T + F80__Truck)/100 * VD80 * 1000,
-         TD81=(F81__T + F81__Truck)/100 * VD81 * 1000,
-         TD82=(F82__T + F82__Truck)/100 * VD82 * 1000,
-         TD83=(F83__T + F83__Truck)/100 * VD83 * 1000,
-         TD84=(F84__T + F84__Truck)/100 * VD84 * 1000,
-         TD85=(F85__T + F85__Truck)/100 * VD85 * 1000,
-         TD86=(F86__T + F86__Truck)/100 * VD86 * 1000,
-         TD87=(F87__T + F87__Truck)/100 * VD87 * 1000,
-         TD88=(F88__T + F88__Truck)/100 * VD88 * 1000,
-         TD89=F89__T/100 * VD89 * 1000,
-         TD90=F90__T/100 * VD90 * 1000,
-         TD91=F91__T/100 * VD91 * 1000,
-         TD92=F92__T/100 * VD92 * 1000,
-         TD15=(F10__S + F10__C)/100 * VD15) %>%
+  mutate(TD80=((F80__T + F80__Truck)/100) * VD80 * 1000,
+         TD81=((F81__T + F81__Truck)/100) * VD81 * 1000,
+         TD82=((F82__T + F82__Truck)/100) * VD82 * 1000,
+         TD83=((F83__T + F83__Truck)/100) * VD83 * 1000,
+         TD84=((F84__T + F84__Truck)/100) * VD84 * 1000,
+         TD85=((F85__T + F85__Truck)/100) * VD85 * 1000,
+         TD86=((F86__T + F86__Truck)/100) * VD86 * 1000,
+         TD87=((F87__T + F87__Truck)/100) * VD87 * 1000,
+         TD88=((F88__T + F88__Truck)/100) * VD88 * 1000,
+         TD89=(F89__T/100) * VD89 * 1000,
+         TD90=(F90__T/100) * VD90 * 1000,
+         TD91=(F91__T/100) * VD91 * 1000,
+         TD92=(F92__T/100) * VD92 * 1000,
+         TD15=((F10__S + F10__C)/100) * VD15) %>%
   dplyr::select(starts_with('TD')) # Drop all other fields except for the trucks/day fields (TD##)
 
 # Remove schools from list that are not part of district that provides bus services
@@ -243,6 +243,11 @@ roads <- roads %>%
          VD92=VD92*1000,
          VD93=VD93*1000,
          VD94=VD94*1000)
+
+# Update fields for 'missing' historic traffic maps for 1982 and 1989
+# Done by averaging counts on either side of the missing year, as 
+# traffic count maps often use previous years, not all roads are counted the same year
+
 
 # Define Roads and VD (vehicles/day) Field from Prediction Year
 vd_field <- paste0('VD',as.numeric(substr(as.character(Prediction_Year), 3,4)))
