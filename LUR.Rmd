@@ -798,6 +798,10 @@ pcws_lur_preds <- bind_rows(pcws_lur_preds_1987,
 
 # Combine air pollution values and predictors
 pcws_lur_data <- inner_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+
+# Check for homes iwth no addresses and make sure they really don't have anything
+pcws_lur_data_nonjoin <- anti_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+# 21 homes with no address data, many unique to 1992, which we know have no address data
        
 
 # Correct any predictor values (starting with the 5th column) that are NA to 0
@@ -818,8 +822,6 @@ pcws_lur_data <- filter(pcws_lur_data, styear!=1992)
 
 
 ```{r PCWS LUR, echo=FALSE, message=FALSE, warning=FALSE}
-
-
 
 escape_lur_mod <- function(pollutant) {
   
@@ -1020,15 +1022,18 @@ if (any(cooksd>1)) {
 mod <- escape_lur_mod('no2')
 summary(mod)
 
-mod <- escape_lur_mod('pm25')
-summary(mod)
-
 mod <- escape_lur_mod('pm10') 
 summary(mod)
 
+# # # #  Error in eval(predvars, data, env) : object 'roads_rl_10000' not found
+
+mod <- escape_lur_mod('pm25')
+summary(mod)
+
+```
 
 
-#Validation
+```{r PCWS LUR Validation, echo=FALSE, message=FALSE, warning=FALSE}
 
 #Leave one out Cross Validation
 # define training control

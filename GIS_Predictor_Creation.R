@@ -186,10 +186,10 @@ busdepots <- shape_input("BusDepots.shp")
 histdev <- filter(histdev, UNITS>0)
 
 # Create a transit center predictor
-trnscenters <- filter(busstops, 
-                      StopName=="SS/Laos Transit Center" |
-                      StopName=="SS/Downtown Ronstadt Center" |
-                      StopName=="SS/Tohono Transit Center")
+trnscenters <- busstops %>%
+  filter(StopName=="Laos Transit Center" |
+           StopName=="Downtown Ronstadt Center" |
+           StopName=="Tohono Transit Center")
 
 # Create Davis Monthan AFB and Tucson Airport predictors
 dmafb <- filter(air, NAME == "DAVIS-MONTHAN AIR FORCE BASE")
@@ -201,21 +201,43 @@ vehtype <- vehtype[ , grepl( "^F" , names( vehtype ) ) | grepl( "VD" , names( ve
 # Create truck vehicle loading counts in vehicle type based on ADOT truck %s, PAG traffic counts
 # This includes changing truck counts into percents; updating older road counts into true vehicle counts (not in thousands)
 vehtype <- vehtype %>%
-  mutate(TD80=((F80__T + F80__Truck)/100) * VD80 * 1000,
-         TD81=((F81__T + F81__Truck)/100) * VD81 * 1000,
-         TD82=((F82__T + F82__Truck)/100) * VD82 * 1000,
-         TD83=((F83__T + F83__Truck)/100) * VD83 * 1000,
-         TD84=((F84__T + F84__Truck)/100) * VD84 * 1000,
-         TD85=((F85__T + F85__Truck)/100) * VD85 * 1000,
-         TD86=((F86__T + F86__Truck)/100) * VD86 * 1000,
-         TD87=((F87__T + F87__Truck)/100) * VD87 * 1000,
-         TD88=((F88__T + F88__Truck)/100) * VD88 * 1000,
-         TD89=(F89__T/100) * VD89 * 1000,
-         TD90=(F90__T/100) * VD90 * 1000,
-         TD91=(F91__T/100) * VD91 * 1000,
-         TD92=(F92__T/100) * VD92 * 1000,
-         TD15=((F10__S + F10__C)/100) * VD15) %>%
+  mutate(TD80=((F80__T + F80__Truck)/100) * F80_AADT,
+         TD81=((F81__T + F81__Truck)/100) * F81_AADT,
+         TD82=((F82__T + F82__Truck)/100) * F82_AADT,
+         TD83=((F83__T + F83__Truck)/100) * F83_AADT,
+         TD84=((F84__T + F84__Truck)/100) * F84_AADT,
+         TD85=((F85__T + F85__Truck)/100) * F85_AADT,
+         TD86=((F86__T + F86__Truck)/100) * F86_AADT,
+         TD87=((F87__T + F87__Truck)/100) * F87_AADT,
+         TD88=((F88__T + F88__Truck)/100) * F88_AADT,
+         TD89=(F89__T/100) * F89_AADT,
+         TD90=(F90__T/100) * F90_AADT,
+         TD91=(F91__T/100) * F91_AADT,
+         TD92=(F92__T/100) * F92_AADT,
+         TD93=(F93__T/100) * F93_AADT,
+         TD94=(F94__T/100) * F94_AADT,
+         TD15=((F10__S + F10__C)/100) * F10_AADT) %>%
   dplyr::select(starts_with('TD')) # Drop all other fields except for the trucks/day fields (TD##)
+# 
+# 
+# vehtype <- vehtype %>%
+#   mutate(TD80=((F80__T + F80__Truck)/100) * VD80 * 1000,
+#          TD81=((F81__T + F81__Truck)/100) * VD81 * 1000,
+#          TD82=((F82__T + F82__Truck)/100) * VD82 * 1000,
+#          TD83=((F83__T + F83__Truck)/100) * VD83 * 1000,
+#          TD84=((F84__T + F84__Truck)/100) * VD84 * 1000,
+#          TD85=((F85__T + F85__Truck)/100) * VD85 * 1000,
+#          TD86=((F86__T + F86__Truck)/100) * VD86 * 1000,
+#          TD87=((F87__T + F87__Truck)/100) * VD87 * 1000,
+#          TD88=((F88__T + F88__Truck)/100) * VD88 * 1000,
+#          TD89=(F89__T/100) * VD89 * 1000,
+#          TD90=(F90__T/100) * VD90 * 1000,
+#          TD91=(F91__T/100) * VD91 * 1000,
+#          TD92=(F92__T/100) * VD92 * 1000,
+#          TD93=(F93__T/100) * VD93 * 1000,
+#          TD94=(F94__T/100) * VD94 * 1000,
+#          TD15=((F10__S + F10__C)/100) * VD15) %>%
+#   dplyr::select(starts_with('TD')) # Drop all other fields except for the trucks/day fields (TD##)
 
 # Remove schools from list that are not part of district that provides bus services
 schools <- subset(schools, !is.na(SDISTNAME))
