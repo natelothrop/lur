@@ -798,10 +798,15 @@ pcws_lur_preds <- bind_rows(pcws_lur_preds_1987,
 
 # Combine air pollution values and predictors
 pcws_lur_data <- inner_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+<<<<<<< HEAD
 
 # Check for homes iwth no addresses and make sure they really don't have anything
 pcws_lur_data_nonjoin <- anti_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
 # 21 homes with no address data, many unique to 1992, which we know have no address data
+=======
+pcws_lur_data_nonjoin <- anti_join(pcws_ap, pcws_lur_preds, by=c("hhid_x","styear"))
+
+>>>>>>> d6187b1737abf538b4dd465317d7a36134980ea1
        
 
 # Correct any predictor values (starting with the 5th column) that are NA to 0
