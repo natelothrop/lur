@@ -19,7 +19,7 @@ Cohort <- 'P5'
 
 # Set your prediction year of interest! 
 #NOTE - the most recent year this is built for is 2015!
-Prediction_Year <- 1991
+Prediction_Year <- 1987
 
 #### Loading Packages ####
 
@@ -299,35 +299,6 @@ if (file.exists(Prediction_Year_Folder)){
   setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
 }
 
-
-#### Elevation Predictor ####
-setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
-elev_rast <- raster("dem.tif")
-crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
-
-
-elev_rast <- projectRaster(elev_rast, crs=crs_raster)
-
-addrs$elev <- raster::extract(elev_rast, as(addrs, "Spatial"), method='bilinear', df = F)
-
-elev <- addrs %>%
-  filter(!is.na(elev)) %>%
-  mutate(evel = sqrt(elev),
-         styear = eval(Prediction_Year)) %>%
-  dplyr::select(hhid_x, elev, styear)
-
-st_geometry(elev) <- NULL
-
-addrs$elev <- NULL
-
-if (file.exists(Prediction_Year_Folder)){
-  setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
-} else {
-  dir.create(file.path(mainDir, Cohort, subDir, Prediction_Year))
-  setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
-}
-
-write.csv(elev, "elev.csv",row.names = F)
 
 #### CALINE3-Modeled Average Annual PM2.5 Predictor ####
 
@@ -864,6 +835,36 @@ mapply(FUN = nearest_poly_pt, predictors)
 # Nearest rail line
 predictors <- list("rail" = rail)
 mapply(FUN = nearest_poly_pt, predictors)
+
+
+#### Elevation Predictor ####
+setwd("/Users/nathanlothrop/Dropbox/P5_TAPS_TEMP/TAPS/Data/LUR/Rasters")
+elev_rast <- raster("dem.tif")
+crs_raster <- "+proj=tmerc +lat_0=31 +lon_0=-111.9166666666667 +k=0.9999 +x_0=213360 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=ft +no_defs"
+
+
+elev_rast <- projectRaster(elev_rast, crs=crs_raster)
+
+addrs$elev <- raster::extract(elev_rast, as(addrs, "Spatial"), method='bilinear', df = F)
+
+elev <- addrs %>%
+  filter(!is.na(elev)) %>%
+  mutate(evel = sqrt(elev),
+         styear = eval(Prediction_Year)) %>%
+  dplyr::select(hhid_x, elev, styear)
+
+st_geometry(elev) <- NULL
+
+addrs$elev <- NULL
+
+if (file.exists(Prediction_Year_Folder)){
+  setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
+} else {
+  dir.create(file.path(mainDir, Cohort, subDir, Prediction_Year))
+  setwd(file.path(mainDir, Cohort, subDir, Prediction_Year))
+}
+
+write.csv(elev, "elev.csv",row.names = F)
 
 
 #### Census Predictor ####

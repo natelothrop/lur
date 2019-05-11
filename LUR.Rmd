@@ -871,7 +871,8 @@ escape_lur_mod <- function(pollutant) {
   
   # Filter out predictors that do not meet expected coefficient direction (those without a determined direction stay regardless) and choose the highest adjusted R2 value of those that remain for the seed predictor for this model
   pcws_lur_simple_out <- pcws_lur_simple_out %>%
-    filter(eval(parse(text=expected_coef)) == "undetermined" | coef_direction == eval(parse(text=expected_coef))) %>%
+    filter(eval(parse(text=expected_coef)) == "undetermined" | 
+             coef_direction == eval(parse(text=expected_coef))) %>%
     arrange(desc(adjr2))
   
   # Define the seed predictor
@@ -978,24 +979,37 @@ escape_lur_mod <- function(pollutant) {
     pvaltest_preds <- filter(pvaltest_preds, term != "(Intercept)")
   }
   
-  all_vifs <- vif(mod)
-signif_all <- names(all_vifs)
-
+  # Check for VIF being <3 for all predictors, but only if there is more than 1!
+  if(length(mod$coefficients) > 2) {
+    
+    # Create VIFs
+    all_vifs <- vif(mod)
+    signif_all <- names(all_vifs)
+    
+    while(any(all_vifs > 3)){ #NOTE if vif>3, then exclude from model, starting with largest VIF first as needed
+    var_with_max_vif <- names(which(all_vifs == max(all_vifs)))  # get the var with max vif
   
-  while(any(all_vifs > 3)){ #NOTE if vif>3, then exclude from model, starting with largest VIF first as needed
-  var_with_max_vif <- names(which(all_vifs == max(all_vifs)))  # get the var with max vif
-
-  # Cut out the predictor with pvalue > 0.1
-  mod_form_text <- as.character(mod_form[3])
-  pred_to_cut <- paste0(" + ",var_with_max_pvalue)
-  mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
-  mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
-  mod <- lm(mod_form,pcws_lur_data_TEMP)
-  
-  all_vifs <- car::vif(selectedMod)
+    # Cut out the predictor with pvalue > 0.1
+    mod_form_text <- as.character(mod_form[3])
+    pred_to_cut <- paste0(" + ",var_with_max_pvalue)
+    mod_form_text <- gsub(pred_to_cut,"",mod_form_text,fixed = TRUE)
+    mod_form <- as.formula(paste0(mod_form[2], mod_form[1], mod_form_text))
+    mod <- lm(mod_form,pcws_lur_data_TEMP)
+    
+    all_vifs <- car::vif(selectedMod)
+    }
   }
+  
 
-# We assessed a high Cook’s D value (i.e. >1), indicating an influential observation, because it could be caused by an (extreme) high or low concentration of one of the site(s) or by an included predictor variable with extreme values or many zero values. In such case, the developed model was applied to all sites minus the site with the high Cook’s D value and the changes in model structure (parameter estimates and p-values of included variables, and model R2)were evaluated. If the high Cook’s D value was caused by one of the included predictor variables (indicated by a large change in parameter estimate for that variable without the site), a new LUR model was developed using all sites but without offering that specific predictor variable to the model. 
+
+  
+
+
+# We assessed a high Cook’s D value (i.e. >1), indicating an influential observation, because it could be caused by an (extreme) high or low concentration of one of the site(s) or by an included predictor variable with extreme values or many zero values. 
+
+# 1 - In such case, the developed model was applied to all sites minus the site with the high Cook’s D value and the changes in model structure (parameter estimates and p-values of included variables, and model R2)were evaluated. 
+
+# 2 - If the high Cook’s D value was caused by one of the included predictor variables (indicated by a large change in parameter estimate for that variable without the site), a new LUR model was developed using all sites but without offering that specific predictor variable to the model. 
 
 # Cook's D plot
 # identify D values 4/(n-k-1) 
@@ -1021,11 +1035,25 @@ if (any(cooksd>1)) {
 
 mod <- escape_lur_mod('no2')
 summary(mod)
+AICc(mod)
+
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(formula(mod)
+                     ,data=filter(pcws_lur_data, !is.na(no2_adj)), trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
 
 mod <- escape_lur_mod('pm10') 
 summary(mod)
+AICc(mod)
 
-# # # #  Error in eval(predvars, data, env) : object 'roads_rl_10000' not found
+train_control <- trainControl(method="LOOCV")
+# train the model
+model_loocv <- train(formula(mod)
+                     ,data=filter(pcws_lur_data, !is.na(pm10_adj)), trControl=train_control, method="lm")
+# summarize results
+print(model_loocv)
 
 mod <- escape_lur_mod('pm25')
 summary(mod)
