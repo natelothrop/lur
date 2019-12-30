@@ -1,0 +1,223 @@
+---
+title: 'Aim 2: Health Impacts'
+author: "Nathan Lothrop"
+date: "8/12/2019"
+output: html_document
+---
+#### Aim 2 - Predicting Impacts of Air Pollution Exposures at Enrollment and ID1
+
+```{r Load Packages, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+# Clear environment of temporary files
+# rm(list=ls())
+
+# Read in packages
+packages <- c('Hmisc', 'corrplot', 'tidyverse', 'ggplot2', 'lubridate', 'broom', 'rlist', 'olsrr', 'car', 'AICcmodavg', 'lctools', 'sf', 'sp', 'leaflet', 'caret', 'lme4', 'lmerTest', 'data.table', 'knitr', 'modelr', 'ggpubr', 'janitor', 'kableExtra', 'formattable', 'corrplot', 'qtlcharts', 'PerformanceAnalytics', 'xts', 'factoextra', 'rms', 'nnet')
+
+
+package.check <- lapply(packages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+```
+
+
+```{r Aim 2a - Impacts of Air Pollution on Preschool Wheezing Phenotypes, eval=FALSE, echo=TRUE, message=FALSE, warning=FALSE}
+
+# # # # TEST SCRIPT WITH MADE UP OUTCOME!!!!
+
+tcrs_complt_preds_enr$whup1 <- factor(floor(runif(nrow(tcrs_complt_preds_enr), min=1, max=5)))
+
+tcrs_complt_preds_enr$whup1 <- relevel(tcrs_complt_preds_enr$whup1, ref=1)
+
+
+# Define results table function for models - used for model pruning and output
+results_table <- function(model_name) {
+ confint <- data.frame(exp(confint(eval(parse(text=model_name))))) %>%
+    mutate(Predictor = row.names(.))
+  
+  results <- data.frame(coef(summary(eval(parse(text=model_name))))) %>%
+    mutate(Predictor = row.names(.),
+           OR = exp(Estimate),
+           p.values = Pr...z..)  %>%
+    full_join(. , confint, by=c("Predictor"))%>%
+      dplyr::select(Predictor, OR, -Estimate, -Pr...z.., everything())
+}
+
+# Set the reference level for the outcome
+tcrs_complt_preds_enr$whup1 <- relevel(tcrs_complt_preds_enr$whup1, ref = 1)
+
+# Base Model - ~ Pollutant Only
+mod <- multinom(whup1 ~ no2 + hh_5000, data=tcrs_complt_preds_enr)
+
+summary(mod)
+
+
+
+exp(coef(mod))
+
+model_name='mod'
+
+# Define results table function for models - used for model pruning and output
+whzpheno_results_table <- function(model_name, pollutant) {
+ confint <- data.frame(exp(confint(eval(parse(text=model_name))))) %>%
+   mutate(Predictor = row.names(.),
+          X2.5...2 = formatC(X2.5...2, format = "f", digits = 2, flag = "#"),
+          X2.5...3 = formatC(X2.5...2, format = "f", digits = 2, flag = "#"),
+          X2.5...4 = formatC(X2.5...2, format = "f", digits = 2, flag = "#"),
+          X97.5...2 = formatC(X97.5...2, format = "f", digits = 2, flag = "#"),
+          X97.5...3 = formatC(X97.5...3, format = "f", digits = 2, flag = "#"),
+          X97.5...4 = formatC(X97.5...4, format = "f", digits = 2, flag = "#")) %>%
+   transmute(Predictor = Predictor,
+             RRR_EO_CI = paste0("(",X2.5...2," - ",X97.5...2,")"),
+             RRR_TE_CI =  paste0("(",X2.5...3," - ",X97.5...3,")"),
+             RRR_P_CI =  paste0("(",X2.5...4," - ",X97.5...4,")"))  
+  
+  results <- data.frame(t(exp(coef(summary(eval(parse(text=model_name))))))) %>%
+    transmute(Predictor = row.names(.),
+           RRR_EO = formatC(X2, format = "f", digits = 2, flag = "#"),
+           RRR_TE = formatC(X3, format = "f", digits = 2, flag = "#"),
+           RRR_P = formatC(X4, format = "f", digits = 2, flag = "#"))  %>%
+    full_join(. , confint, by=c("Predictor")) %>%
+    transmute(Predictor = Predictor,
+              RRR_EO = paste0(RRR_EO, " ", RRR_EO_CI),
+              RRR_TE = paste0(RRR_TE, " ", RRR_TE_CI),
+              RRR_P = paste0(RRR_P, " ", RRR_P_CI)) %>%
+    filter(Predictor == pollutant) %>%
+    mutate(Model = "Base")
+    
+    
+    gather(key="model", value="RRR_CI")
+}
+
+
+# Pvalue calc: One way to calculate a p-value in this case is by comparing the t-value against the standard normal distribution, like a z test. Of course this is only true with infinite degrees of freedom, but is reasonably approximated by large samples, becoming increasingly biased as sample size decreases. This approach is used in other software packages such as Stata and is trivial to do. First we store the coefficient table, then calculate the p-values and combine back with the table. (Source: https://stats.idre.ucla.edu/r/dae/ordinal-logistic-regression/)
+
+no2_mod_base_results <- whzpheno_results_table(model_name='mod', pollutant='no2')
+
+# Full Model - ~ Pollutant + Other Covariates
+
+# Assess confounding to see if by adding in other covariates, pollutant OR changes by >10%
+
+no2_mod_full <- clm(whup1 ~ no2 + hh_1000 + busstops_5000, data=tcrs_complt_preds_enr)
+
+# Final Model - ~ Full model covariates with a p-value <0.10 and variance inflation factor <3
+
+# Testing effect modification of air pollution exposure by sex, SES, and atopy, keep interaction terms with pvalue<0.1
+
+# # # # CHANGE TO CORRECT VARIABLE NAMES!!!!!
+mod <- update(no2_mod_full, . ~ . + no2:hh_1000 + no2:hh_500 + no2:hh_300)
+
+# Pulling predictors one by one with pvalues>0.1
+
+# Create test dataset to only evaluate the interaction terms
+pvaltest_preds <- results_table(model_name = 'mod') %>%
+  filter(., str_detect(Predictor,":"))
+
+while(any(pvaltest_preds$p.value > 0.1)){
+  
+  var_with_max_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+  
+      formula.new <- as.formula(
+      paste(
+          paste(deparse(mod$formula), collapse=""),
+          paste(var_with_max_pvalue, collapse="-"),
+          sep="-"
+      )
+  )
+      
+  mod <- clm(formula.new, data=tcrs_complt_preds_enr)
+
+  # Create test dataset to only evaluate the interaction terms
+
+  pvaltest_preds <- results_table(model_name = 'mod') %>%
+    filter(., str_detect(Predictor,":"))
+}
+
+
+# Testing exposure misclassification due to moving by including moving term, stratify if needed by moving
+
+# # # # # MADE UP MOVING TERM FOR TESTING ONLY!!!!!
+
+tcrs_complt_preds_enr$moved_enrl_id1 <- factor(floor(runif(nrow(tcrs_complt_preds_enr), min=0, max=2)))
+
+mod <- update(mod, . ~ . + moved_enrl_id1)
+
+moving_test <- results_table(model_name = 'mod') 
+
+# While there are predictors from the full model with p-values > 0.1, remove them and rerun the model
+
+# Create test dataset to evaluate all predictors but pollutants
+pvaltest_preds <- results_table(model_name = 'mod') %>%
+  filter(., Predictor != "no2") %>%
+  filter(., !str_detect(Predictor, "\\|"))
+
+# # NOTE - this section doesn't work due to the fact that factor level variables are named one thing when put into the mode, but something else when diagnostics come back on account of each level is its own variable!
+# while(any(pvaltest_preds$p.value > 0.1)){
+#   
+#   var_with_max_pvalue <- pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+#   
+#       formula.new <- as.formula(
+#       paste(
+#           paste(deparse(no2_mod_final$terms), collapse=""),
+#           paste(var_with_max_pvalue, collapse="-"),
+#           sep="-"
+#       )
+#   )
+# 
+#   no2_mod_final <- clm(formula.new, data=tcrs_complt_preds_enr)
+# 
+# # Create test dataset to evaluate all predictors but pollutants
+# pvaltest_preds <- results_table(model_name = 'no2_mod_final') %>%
+#   filter(., Predictor != "no2") %>%
+#   filter(., !str_detect(Predictor, "\\|"))
+# }
+
+# Extract each predictor one by one with pvalues>0.1 manually and redo the model, starting with highest
+pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+
+# Remove the predictor and rerun the model
+mod <- update(mod, . ~ . - busstops_5000)
+
+# Create test dataset to evaluate all predictors but pollutants
+pvaltest_preds <- results_table(model_name = 'mod') %>%
+  filter(., Predictor != "no2") %>%
+  filter(., !str_detect(Predictor, "\\|"))
+
+# Extract each predictor one by one with pvalues>0.1 manually and redo the model, starting with highest
+pvaltest_preds[(which(pvaltest_preds$p.value == max(pvaltest_preds$p.value))),1]  # get the var with max pvalue
+
+
+
+# While there are any predictors that have VIF>3, remove them and rerun the model
+# Create VIFs
+all_vifs <- vif(mod)
+signif_all <- names(all_vifs)
+
+#NOTE if vif>3, then exclude from model, starting with largest VIF first as needed
+var_with_max_vif <- names(which(all_vifs == max(all_vifs)))  # get the var with max vif
+
+# Remove the predictor and rerun the model
+mod <- update(mod, . ~ ., + moved_enrl_id1)
+
+# Sensitivity analysis to test if I have inadvertently introduced confounding by using a modeled air pollution exposure value in a health effect model (Cefalu & Dominici, 2014; Szpiro & Paciorek, 2013) by refitting the final health effects models with the predictors from the final air pollution exposure model
+
+pollutant='no2'
+
+mod_form <- formula(mod)
+
+mod_form <- str_replace(mod_form, pollutant, as.character(formula(pcws_no2_mod)[3]))[3]
+
+
+
+mod_form <- paste
+
+clm(formula = mod_form)
+mod <- clm(mod_form,pcws_lur_data_TEMP)
+
+
+no2_mod_final_results <- results_table(model_name='no2_mod_final')
+
+
+```
